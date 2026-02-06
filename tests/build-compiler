@@ -1,0 +1,7 @@
+#!/bin/sh
+
+. "$(dirname "$0")/config"
+
+cd "$COMPILER_DIR"
+sbt compilerJVM/stage
+sbt compile fastOptJS

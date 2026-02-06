@@ -1,0 +1,18 @@
+id: debug_0
+data: fixed_struct.bin
+# NOTE: debug mode is enabled, so don't forget to add the `r._read()` call
+asserts:
+  - actual: one
+    expected: 0x50
+  - actual: array_of_ints.size
+    expected: 3
+  - actual: array_of_ints[0]
+    expected: 0x41
+  - actual: array_of_ints[1]
+    expected: 0x43
+  - actual: array_of_ints[2]
+    expected: 0x4b
+  # - actual: _unnamed2
+  #   expected: 0x2d
+
+  # NOTE: `_debug` asserts must be added manually to the generated unit test

@@ -1,0 +1,65 @@
+digraph {
+	rankdir=TB;
+	compound=true;
+	node [shape=plaintext, style=filled];
+
+	git_compiler [label="git:\ncompiler",fillcolor="#ffffba",href="https://github.com/kaitai-io/kaitai_struct_compiler",target="_blank"];
+	git_tests [label="git:\ntests",fillcolor="#ffffba",href="https://github.com/kaitai-io/kaitai_struct_tests",target="_blank"];
+	git_ci_artifacts [label="git:\nci_artifacts",fillcolor="#baffc9",href="https://github.com/kaitai-io/ci_artifacts",target="_blank"];
+	git_runtime_ruby [label="git:\nruntime_ruby",fillcolor="#ffffba",href="https://github.com/kaitai-io/kaitai_struct_ruby_runtime",target="_blank"];
+
+	artifact_deb [label="bintray:\ncompiler .deb",fillcolor="#baffc9",href="https://bintray.com/kaitai-io/debian_unstable/kaitai-struct-compiler",target="_blank"];
+	artifact_zip [label="bintray:\ncompiler .zip",fillcolor="#baffc9",href="https://bintray.com/kaitai-io/universal_unstable/kaitai-struct-compiler",target="_blank"];
+	artifact_js [label="npm:\ncompiler .js",fillcolor="#baffc9",href="https://www.npmjs.com/package/kaitai-struct-compiler",target="_blank"];
+	artifact_msi [label="appveyor:\ncompiler .msi",fillcolor="#baffc9",href="https://ci.appveyor.com/project/kaitai-io/kaitai-struct/build/artifacts",target="_blank"];
+
+	artifact_ci_targets [label="git:\nci_targets",fillcolor="#eaffe9",href="https://github.com/kaitai-io/ci_targets",target="_blank"];
+
+	build_compiler_appveyor [label="appveyor:\nbuild_compiler",fillcolor="#d0d0d0",href="https://ci.appveyor.com/project/kaitai-io/kaitai-struct",target="_blank"];
+
+	dashboard [label="http://ci.kaitai.io/",href="//ci.kaitai.io/",fillcolor="#ffb86c",target="_blank"];
+	web_ide_unstable [label="https://ide.kaitai.io/devel/",href="https://ide.kaitai.io/devel/",fillcolor="#ffb86c",target="_blank"];
+
+	abridged_1 [label="...", style=none];
+
+	git_compiler -> build_compiler;
+	git_compiler -> build_compiler_appveyor -> artifact_msi;
+
+
+	subgraph cluster_build_compiler {
+		label="travis:\ncompiler and targets";
+		graph[style=dotted];
+
+		build_compiler -> {test_compiler build_formats};
+	}
+
+	git_tests -> {build_formats build_ruby_1_9 build_ruby_2_3};
+	build_compiler -> {artifact_deb artifact_zip artifact_js};
+
+	subgraph cluster_travis_ci_targets {
+		label="travis:\nci_targets";
+		graph[style=dotted];
+
+		build_ruby_1_9 [label="ruby/1.9"];
+		build_ruby_2_3 [label="ruby/2.3"];
+	}
+
+	build_formats -> artifact_ci_targets -> {build_ruby_1_9 build_ruby_2_3} -> git_ci_artifacts -> dashboard;
+
+	git_runtime_ruby -> {build_ruby_1_9 build_ruby_2_3};
+
+	artifact_js -> abridged_1 -> web_ide_unstable;
+
+	subgraph cluster_legend {
+		label="Legend";
+		graph[style=dotted];
+
+		legend_artifact_int [label="Intemediate artifact",fillcolor="#eaffe9"];
+		legend_artifact_final [label="Final artifact",fillcolor="#baffc9"];
+		legend_source [label="Source repo",fillcolor="#ffffba"];
+		legend_build [label="Build process",fillcolor="#d0d0d0"];
+		legend_website [label="Website",fillcolor="#ffb86c"];
+
+		legend_artifact_int -> legend_artifact_final -> legend_source -> legend_build -> legend_website [style=invis];
+	}
+}

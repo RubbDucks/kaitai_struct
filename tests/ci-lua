@@ -1,0 +1,15 @@
+#!/bin/sh
+
+. "$(dirname "$0")/config"
+
+LUA_OUT_DIR="${TEST_OUT_DIR}/lua"
+
+rm -rf "${LUA_OUT_DIR}"
+mkdir -p "${LUA_OUT_DIR}"
+
+export LUA_PATH="$LUA_PATH;$LUA_RUNTIME_DIR/?.lua;spec/lua/?.lua;spec/lua/extra/?.lua;compiled/lua/?.lua;;"
+
+lua spec/lua/run_test_suite.lua --output junit --name "${LUA_OUT_DIR}/report"
+
+./kst-adoption-report lua
+aggregate/convert_to_json lua "${LUA_OUT_DIR}" "${LUA_OUT_DIR}/ci.json"

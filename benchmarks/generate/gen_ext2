@@ -1,0 +1,6 @@
+#!/bin/sh -ef
+
+cd "$DATA_DIR"
+
+dd if=/dev/zero of=ext2.dat bs=1024 count=65536
+/sbin/mkfs.ext2 "ext2.dat"

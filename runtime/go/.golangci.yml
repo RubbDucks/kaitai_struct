@@ -1,0 +1,47 @@
+version: "2"
+linters:
+  default: all
+  disable:
+    - depguard
+    - exhaustruct
+    - gocognit
+    - gocyclo
+    - godot
+    - godox
+    - goheader
+    - gomodguard
+    - goprintffuncname
+    - mnd
+    - nestif
+    - nlreturn
+    - paralleltest
+    - testpackage
+    - varnamelen
+    - wsl
+    - wsl_v5
+  exclusions:
+    generated: lax
+    presets:
+      - comments
+      - common-false-positives
+      - legacy
+      - std-error-handling
+    rules:
+      - path: (.+)\.go$
+        text: Using the variable on range scope `tt` in function literal
+      - path: (.+)\.go$
+        text: 'var-naming: don''t use underscores in Go names; method IO_ should be IO'
+    paths:
+      - third_party$
+      - builtin$
+      - examples$
+formatters:
+  enable:
+    - gci
+    - gofmt
+  exclusions:
+    generated: lax
+    paths:
+      - third_party$
+      - builtin$
+      - examples$

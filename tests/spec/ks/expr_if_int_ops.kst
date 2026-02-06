@@ -1,0 +1,12 @@
+id: expr_if_int_ops
+data: instance_io.bin
+asserts:
+  - actual: key
+    expected: 3
+  - actual: bytes
+    expected: '[0xfc, 0xfc, 0xfc, 0xfd, 0x09, 0x03, 0x03, 0x03]'
+
+  - actual: bytes_sub_key
+    expected: 0xfd
+  - actual: items_sub_key
+    expected: -3

@@ -1,0 +1,7 @@
+id: imports_abs
+data: fixed_struct.bin
+asserts:
+  - actual: len.value
+    expected: 80
+  - actual: body.length
+    expected: 80

@@ -1,0 +1,9 @@
+#!/bin/sh
+
+. "$(dirname "$0")/config"
+
+mkdir -p "$TEST_OUT_DIR/ruby"
+rspec -I compiled/ruby -I "$RUBY_RUNTIME_DIR" -f json --out "$TEST_OUT_DIR/ruby/test-output-ruby.json" spec/ruby
+
+./kst-adoption-report ruby
+aggregate/convert_to_json ruby "$TEST_OUT_DIR/ruby" "$TEST_OUT_DIR/ruby/ci.json"

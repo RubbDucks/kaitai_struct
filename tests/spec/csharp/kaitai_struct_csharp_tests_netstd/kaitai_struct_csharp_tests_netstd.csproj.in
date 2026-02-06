@@ -1,0 +1,47 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+	<PropertyGroup>
+		<OutputType>Library</OutputType>
+		<!--
+		  NOTE: Detecting the installed SDK and selecting the right `TargetFramework` is
+		  no longer necessary as it used to be (see
+		  https://github.com/kaitai-io/kaitai_struct_tests/commit/34d09a53d639353cc4c75075ae0baf7414bcb327),
+		  because `<TargetFramework>net8.0</TargetFramework>` would work on both .NET 8
+		  and .NET 10, but we're still choosing to do so in order to get exposed to
+		  breaking changes in .NET 10 early.
+		-->
+		<TargetFramework Condition="$([MSBuild]::VersionGreaterThanOrEquals('$(NETCoreSdkVersion)', '10.0'))">net10.0</TargetFramework>
+		<TargetFramework Condition="!$([MSBuild]::VersionGreaterThanOrEquals('$(NETCoreSdkVersion)', '10.0'))">net8.0</TargetFramework>
+		<ImplicitUsings>enable</ImplicitUsings>
+		<Nullable>disable</Nullable>
+	</PropertyGroup>
+
+	<ItemGroup>
+%%%FILES%%%
+	</ItemGroup>
+
+	<ItemGroup>
+		<None Include="..\..\..\src\*.bin">
+			<CopyToOutputDirectory>Always</CopyToOutputDirectory>
+			<Link>src\%(Filename)%(Extension)</Link>
+		</None>
+	</ItemGroup>
+
+	<ItemGroup>
+		<PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.0.1" />
+		<!-- NOTE: NUnit 4 has some breaking changes that would require migration, see
+		https://docs.nunit.org/articles/nunit/release-notes/Nunit4.0-MigrationGuide.html
+		Therefore, we're sticking with NUnit 3 for now. -->
+		<PackageReference Include="NUnit" Version="3.14.0" />
+		<PackageReference Include="NUnit3TestAdapter" Version="5.2.0" />
+		<PackageReference Include="System.Text.Encoding.CodePages" Version="10.0.0" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<ProjectReference Include="..\..\..\..\runtime\csharp\kaitai_struct_runtime_csharp.csproj">
+			<Project>{8339A750-C407-4CE8-8E31-51CB2EFD3A4B}</Project>
+			<Name>kaitai_struct_runtime_csharp</Name>
+		</ProjectReference>
+	</ItemGroup>
+
+</Project>

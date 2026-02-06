@@ -1,0 +1,87 @@
+#!/bin/sh -ef
+
+. "$(dirname "$0")/config"
+
+./prepare-go
+
+ABS_TEST_OUT_DIR="$(pwd)/$TEST_OUT_DIR"
+ABS_TEST_RUN_LOG="$ABS_TEST_OUT_DIR/go/test_run.stdout"
+rm -rf "$TEST_OUT_DIR/go"
+mkdir -p "$TEST_OUT_DIR/go"
+
+ABS_SPEC_DIR="$(pwd)/spec/go"
+ABS_COMPILED_DIR="$(pwd)/compiled/go"
+
+cd spec/go
+
+cleanup()
+{
+	find "$ABS_SPEC_DIR" "$ABS_COMPILED_DIR" -iname '*.disabled' -exec sh -c 'mv -n "$1" "${1%.disabled}"' sh {} \;
+}
+
+# NOTE: in Bash, `trap ... EXIT` would be enough (and recommended), but unfortunately we
+# cannot change the shebang to `/bin/bash` here because our Docker images run on Alpine
+# and don't have Bash.
+trap 'cleanup' INT TERM HUP EXIT
+
+attempt=1
+
+while true; do
+	echo "build attempt $attempt"
+	if [ "$attempt" -gt 10 ]; then
+		echo 'Too many attempts, giving up :('
+		exit 1
+	fi
+	build_log="$ABS_TEST_OUT_DIR/go/build-$attempt.log"
+
+	# NOTE: after the change <https://github.com/golang/go/issues/60710> introduced in Go
+	# 1.19.11, we can no longer use the exit code of `go test` to know whether there were
+	# build errors. In Go 1.19.10 and older, `go test` always exited with code 2 when
+	# there were build errors and with code 1 when everything built successfully but some
+	# tests failed, but not anymore - Go 1.19.11 exits with code 1 for build errors too.
+	#
+	# So we ignore the exit code of `go test` and always inspect the `stderr` output.
+	go_exit_code=0
+	CGO_ENABLED=0 go test -v . >"$ABS_TEST_RUN_LOG" 2>"$build_log" || go_exit_code=$?
+	echo '`go test` exited with code '"$go_exit_code"
+	echo 'STDERR:'
+	cat "$build_log"
+	echo 'STDOUT:'
+	cat "$ABS_TEST_RUN_LOG"
+
+	build_failed_formats_ex=0
+	grep -E '^\.\.[\/]\.\.[\/]compiled[\/]go[\/].+:[0-9]+:' "$build_log" >"$ABS_TEST_OUT_DIR/go/err.now" || build_failed_formats_ex=$?
+	build_failed_specs_ex=0
+	grep -E '^\.[\/][^\/]+:[0-9]+:' "$build_log" >>"$ABS_TEST_OUT_DIR/go/err.now" || build_failed_specs_ex=$?
+
+	if [ "$build_failed_formats_ex" -eq 0 ] || [ "$build_failed_specs_ex" -eq 0 ]; then
+		if [ -n "$NO_RECOVER" ]; then
+			echo "Got errors but no recovery requested, bailing out"
+			exit 1
+		fi
+
+		sed -e 's|:.*||' -e 's|\\|/|g' <"$ABS_TEST_OUT_DIR/go/err.now" | sort -u >"$ABS_TEST_OUT_DIR/go/to_delete.now"
+		echo "Trying to recover, eliminating files with build errors..."
+		cat "$ABS_TEST_OUT_DIR/go/to_delete.now"
+		xargs -n 1 sh -c 'mv -n "$1" "$1".disabled' sh <"$ABS_TEST_OUT_DIR/go/to_delete.now"
+
+		cat "$ABS_TEST_OUT_DIR/go/to_delete.now" >>"$ABS_TEST_OUT_DIR/go/build_failed_files.txt"
+		attempt=$((attempt+1))
+		echo
+	else
+		echo
+		break
+	fi
+done
+
+cd ../..
+go-junit-report -in "$ABS_TEST_RUN_LOG" -out "$ABS_TEST_OUT_DIR/go/report.xml"
+
+COUNT_TOTAL=$(grep -c '^=== RUN' "$ABS_TEST_RUN_LOG") || :
+COUNT_FAIL=$(grep -c '^--- FAIL' "$ABS_TEST_RUN_LOG") || :
+COUNT_PASS=$(grep -c '^--- PASS' "$ABS_TEST_RUN_LOG") || :
+
+echo "Totals: $COUNT_TOTAL ran, $COUNT_PASS passed, $COUNT_FAIL failed"
+
+./kst-adoption-report go
+aggregate/convert_to_json go "$TEST_OUT_DIR/go" "$TEST_OUT_DIR/go/ci.json"

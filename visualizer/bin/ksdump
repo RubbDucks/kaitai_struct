@@ -1,0 +1,96 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+require 'optparse'
+
+# Some additional magic to make it work right after repo checkout,
+# without installation to proper Ruby library dirs
+
+# The `__dir__` method is supposed to provide the real absolute path of the
+# `bin/` directory (which this script is in), but it can technically return
+# `nil` or a dot `"."` (in an "irb" session) instead. Normally, it shouldn't
+# happen unless some very unusual startup method is used, but if it happens,
+# we'll skip adding the dirs to $LOAD_PATH and wait for a miracle (which might
+# be that the dependencies we need are already available via $LOAD_PATH because
+# they are installed as gems, for example).
+#
+# See also
+# * https://stackoverflow.com/a/2206731
+# * https://makandracards.com/makandra/42122-ruby-__file__-__dir__-and-symlinks
+script_dir = __dir__
+unless script_dir.nil? || script_dir == '.'
+  $LOAD_PATH << File.expand_path('../lib', script_dir)
+  $LOAD_PATH << File.expand_path('../../runtime/ruby/lib', script_dir)
+end
+
+require 'kaitai/struct/visualizer'
+require 'kaitai/struct/visualizer/obj_to_h'
+
+# ======================================================================
+
+FORMATS = %w[json xml yaml].freeze
+
+prog_name = File.basename($PROGRAM_NAME)
+options = { format: 'yaml' }
+parser = OptionParser.new do |opts|
+  opts.banner = "Usage: #{prog_name} [options] <file_to_parse.bin> <format.ksy>..."
+  opts.separator ''
+
+  opts.on('-I', '--import-path [DIRECTORIES]', '.ksy library search path(s) for imports (see also KSPATH env variable)') do |v|
+    options[:import_path] = v
+  end
+
+  opts.on('-f', '--format FORMAT', FORMATS, "choose dump format - #{FORMATS.join(', ')} (default: #{options[:format]})") do |v|
+    options[:format] = v
+  end
+
+  opts.on('--version', 'show versions of kaitai-struct-visualizer, kaitai-struct-compiler and kaitai-struct (Kaitai Struct runtime library for Ruby)') do |_v|
+    puts "kaitai-struct-visualizer #{Kaitai::Struct::Visualizer::VERSION}"
+    if system('kaitai-struct-compiler', '--version').nil?
+      $stderr.puts "#{prog_name}: unable to find and execute kaitai-struct-compiler in your PATH"
+      exit 1
+    end
+    require 'kaitai/struct/struct'
+    puts "kaitai-struct #{Kaitai::Struct::VERSION} (Kaitai Struct runtime library for Ruby)"
+    exit 0
+  end
+end
+
+begin
+  parser.parse!
+rescue OptionParser::InvalidOption => e
+  puts e
+  puts parser
+  exit 1
+end
+
+if ARGV.size < 2
+  puts parser
+  exit 1
+end
+
+c = Kaitai::Struct::Visualizer::KSYCompiler.new(options, prog_name)
+app = Kaitai::Struct::Visualizer::Parser.new(c, ARGV[0], ARGV[1..-1], options)
+exc = app.load
+raise exc if exc
+
+# ======================================================================
+
+tree = Kaitai::Struct::Visualizer.obj_to_h(app.data)
+r = nil
+
+case options[:format]
+when 'json'
+  require 'json'
+  r = JSON.pretty_generate(tree)
+when 'xml'
+  require 'active_support'
+  require 'active_support/core_ext'
+  r = tree.to_xml
+when 'yaml'
+  require 'yaml'
+  r = tree.to_yaml
+  r = r[4..-1] if r[0..3] == "---\n"
+end
+
+puts r

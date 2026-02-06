@@ -1,0 +1,136 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+require 'json'
+require 'tmpdir'
+require 'pp'
+
+unless ARGV.length == 2
+  $stderr.puts "Usage: #{$PROGRAM_NAME} (<prev_ci_json> | '') <now_ci_json>"
+  exit 1
+end
+
+prev_ci_json, now_ci_json = ARGV
+
+class CIComparison
+  def initialize(prev_file, now_file)
+    @prev =
+      if prev_file.empty?
+        {}
+      else
+        load_ci_json(prev_file)
+      end
+    @now = load_ci_json(now_file)
+
+    @prev.delete('$meta')
+    @now.delete('$meta')
+  end
+
+  def compare
+    @added = []
+    @changed = []
+    @removed = []
+    @fixed = []
+    @broken = []
+
+    # Detect added and changed tests
+    @now.each_pair { |name, now_res|
+      prev_res = @prev[name]
+      if prev_res.nil?
+        @added << [name, now_res]
+        next
+      end
+
+      has_changed = prev_res['status'] != now_res['status'] ||
+                    prev_res['failure'] != now_res['failure']
+      next unless has_changed
+
+      if prev_res['status'] != 'passed' && now_res['status'] == 'passed'
+        @fixed << [name, prev_res, now_res]
+      elsif prev_res['status'] == 'passed' && now_res['status'] != 'passed'
+        @broken << [name, prev_res, now_res]
+      else
+        @changed << [name, prev_res, now_res]
+      end
+    }
+
+    # Detect removed tests
+    @prev.each_pair { |name, res|
+      @removed << [name, res] unless @now[name]
+    }
+  end
+
+  def report_all
+    @no_changes = true
+
+    dump_test_list('➕', 'added', @added)
+    dump_test_list('➖', 'removed', @removed)
+    dump_test_list('🟢', 'fixed', @fixed)
+    dump_test_list('🔴', 'broken', @broken)
+    dump_test_list('🔵', 'changed', @changed)
+
+    puts "(no changes)" if @no_changes
+  end
+
+  def load_ci_json(fn)
+    doc = File.read(fn)
+    JSON.parse(doc)
+  end
+
+  def dump_test_list(icon, status, list)
+    return if list.empty?
+
+    @no_changes = false
+
+    puts "* #{icon} #{list.length} tests #{status}:"
+    Dir.mktmpdir do |temp_dir|
+      list.each { |t|
+        if t.length == 2
+          puts "  * #{t[0]}:"
+          puts dump_test_result(t[1])
+        else
+          prev_test = t[1]
+          now_test = t[2]
+
+          if prev_test['is_kst'] == now_test['is_kst']
+            prev_test.delete('is_kst')
+            now_test.delete('is_kst')
+          end
+
+          # Remove "elapsed", as fluctuation is expected and ultimately not interesting
+          prev_test.delete('elapsed')
+          now_test.delete('elapsed')
+
+          puts "  * #{t[0]}:"
+          prev_out = dump_test_result(t[1])
+          now_out = dump_test_result(t[2])
+          Dir.chdir(temp_dir) do
+            File.write('prev', prev_out, binmode: true)
+            File.write('now', now_out, binmode: true)
+            # GitHub Actions supports ANSI color output, but its stdout not a terminal
+            # (tty), so with `--color=auto` (which is default), Git doesn't color the
+            # output. Therefore, we pass `--color=always` if we're in CI.
+            color_arg =
+              if ENV.fetch('CI', '') != ''
+                'always'
+              else
+                'auto'
+              end
+            ret = system('git', 'diff', "--color=#{color_arg}", '--no-index', '--', 'prev', 'now', { close_others: true })
+            raise "unable to find and execute 'git' in your PATH" if ret.nil?
+
+            warn "'git diff' found no differences, which makes no sense (we probably have a bug in the code)" if ret
+          end
+        end
+      }
+    end
+  end
+
+  def dump_test_result(res)
+    res.pretty_inspect.gsub(/^/, ' ' * 4)
+  end
+end
+
+cic = CIComparison.new(prev_ci_json, now_ci_json)
+cic.compare
+cic.report_all

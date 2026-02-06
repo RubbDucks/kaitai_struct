@@ -1,0 +1,11 @@
+#!/usr/bin/env ruby
+
+N = 100
+CHUNK = 1600000
+
+File.open("#{ENV['DATA_DIR']}/benchmark_process_xor.dat", 'w') { |f|
+    N.times {
+        f.write([CHUNK].pack('V'))
+        f.write(File.binread('/dev/zero', CHUNK))
+    }
+}

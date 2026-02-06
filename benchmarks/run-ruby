@@ -1,0 +1,14 @@
+#!/bin/sh
+
+. ./config
+export DATA_DIR=$(pwd)/$DATA_DIR
+
+run_ruby()
+{
+	echo "== $@"
+	ruby -I compiled/ruby spec/ruby/$@
+}
+
+run_ruby run_benchmark_process_xor.rb
+run_ruby run_ext2.rb
+run_ruby run_pcap.rb

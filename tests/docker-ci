@@ -1,0 +1,263 @@
+#!/bin/sh -ef
+
+. "$(dirname "$0")/config"
+
+TESTS_DIR="$(pwd)"
+
+print_usage()
+{
+	cat <<EOF
+$0 [--shell] [--download] [--no-compare] --target {TARGET} --implementation {IMPLEMENTATION} [--os {OS}] [--arch {ARCH}]
+
+Runs Kaitai Struct CI for a specific target and implementation in a
+Docker container using image that guarantees to have all necessary
+prerequisites installed.
+
+Options:
+  -t|--target NAME          select target programming language
+  -u|--subtarget NAME       select variant of target programming language
+  -i|--implementation NAME  select implementation of programming language
+  --os NAME                 select operating system
+  --arch NAME               select architecture
+  -s|--shell                launches interactive shell instead of CI script
+  -d|--download             attempt to download image from ghcr.io if missing
+  -r|--rebuild              clean up everything and rebuild
+  --no-compare              don't compare with previous master build from CI
+
+Available images:
+EOF
+	detect_docker
+	"$DOCKER_BIN" images --filter='label=io.kaitai.ci=true'
+}
+
+# Cleans up leftover binary artifacts from previous builds to make sure we're starting from scratch
+cleanup_bin()
+{
+	echo "Cleaning up binary artifacts..."
+	case "$TARGET" in
+	cpp_stl|java)
+		sudo rm -rf "compiled/$TARGET$SUBTARGET/bin"
+		;;
+	esac
+}
+
+detect_docker()
+{
+	if docker --version >/dev/null 2>/dev/null; then
+		DOCKER_BIN=docker
+	elif podman --version >/dev/null 2>/dev/null; then
+		DOCKER_BIN=podman
+		EXTRA_OPTS='--security-opt label=disable'
+	else
+		echo "ERROR: Docker or Podman binary not found."
+		exit 1
+	fi
+}
+
+is_image_available()
+{
+	# Strictly speaking, `local` is undefined in POSIX sh, but "quite a lot of
+	# real world shells support this feature" (see
+	# https://www.shellcheck.net/wiki/SC3043#exceptions), so it's probably not a
+	# problem. If it becomes a problem, we can always replace it with some
+	# workaround.
+	local images
+
+	# This splitting (first collect the output into a variable, then load it to
+	# `grep`) is necessary, because we want to fail if `docker images` has a
+	# non-zero exit code, not look for matches in the error output. This comment
+	# explains it well:
+	# https://www.reddit.com/r/programming/comments/1bvinup/comment/ky31m01/
+	if ! images=$("$DOCKER_BIN" images --no-trunc -q "$1"); then
+		exit 1
+	fi
+	printf '%s\n' "$images" | grep -q '^sha256:[0-9a-f]\+$'
+}
+
+# Define default values for parameters
+TARGET=""
+SUBTARGET=""
+IMPLEMENTATION=""
+OS=linux
+ARCH=x86_64
+SHELL_FLAG=0
+DOWNLOAD_FLAG=0
+REBUILD_FLAG=0
+DO_COMPARE_FLAG=1
+
+# Parse command-line options
+while [ $# -gt 0 ]; do
+	key="$1"
+
+	case "$key" in
+	--shell|-s)
+		SHELL_FLAG=1
+		DO_COMPARE_FLAG=0
+		shift
+		;;
+	--download|-d)
+		DOWNLOAD_FLAG=1
+		shift
+		;;
+	--rebuild|-r)
+		REBUILD_FLAG=1
+		shift
+		;;
+	--target|-t)
+		TARGET="$2"
+		shift 2
+		;;
+	--subtarget|-u)
+		SUBTARGET="$2"
+		shift 2
+		;;
+	--implementation|-i)
+		IMPLEMENTATION="$2"
+		shift 2
+		;;
+	--os)
+		OS="$2"
+		shift 2
+		;;
+	--arch)
+		ARCH="$2"
+		shift 2
+		;;
+	--no-compare)
+		DO_COMPARE_FLAG=0
+		shift
+		;;
+	--help|-h)
+		print_usage
+		exit 0
+		;;
+	*)
+		echo "Unknown option: $1"
+		print_usage
+		exit 1
+		;;
+	esac
+done
+
+if [ -z "$TARGET" ] || [ -z "$OS" ] || [ -z "$ARCH" ]; then
+	echo "Missing required parameters."
+	exit 1
+fi
+
+EXTRA_OPTS=
+
+detect_docker
+
+# If IMPLEMENTATION is missing, auto-select first available one
+if [ -z "$IMPLEMENTATION" ]; then
+	# We're running the script with `set -e`, so all we need to do in order to
+	# check the exit code of `docker images` is to have it on a separate line
+	# like this (if it fails, the script will exit immediately).
+	MATCHING_IMGS=$("$DOCKER_BIN" images --format='{{.Repository}}' \
+		--filter='label=io.kaitai.ci=true' \
+		--filter="reference=kaitai-$TARGET-"'*'"-$OS-$ARCH")
+	IMG_NAME=$(printf '%s\n' "$MATCHING_IMGS" | head -n1)
+	if [ -z "$IMG_NAME" ]; then
+		echo "No local Docker images found at all for target '$TARGET'. Please specify '-i' with an implementation and '--download' to download it."
+		exit 3
+	fi
+
+	# Extract implementation name from image name
+	# Handle both local images (kaitai-TARGET-IMPL-OS-ARCH) and remote images (ghcr.io/kaitai-io/kaitai-TARGET-IMPL-OS-ARCH)
+	IMPLEMENTATION=$(echo "$IMG_NAME" | sed -e "s/^.*\/kaitai-$TARGET-//" -e "s/^kaitai-$TARGET-//" -e "s/-$OS-$ARCH$//")
+	IMG_COORD="$IMG_NAME"
+else
+	IMG_NAME="kaitai-$TARGET-$IMPLEMENTATION-$OS-$ARCH"
+
+	# Check image availability
+	if is_image_available "$IMG_NAME"; then
+		# If locally-built image exists, prioritize that
+		IMG_COORD="$IMG_NAME"
+	elif is_image_available "ghcr.io/kaitai-io/$IMG_NAME"; then
+		# If ghcr.io image exists, use it
+		IMG_COORD="ghcr.io/kaitai-io/$IMG_NAME"
+	elif [ "$DOWNLOAD_FLAG" = 1 ]; then
+		# No image, but we'll try to download
+		IMG_COORD="ghcr.io/kaitai-io/$IMG_NAME"
+		"$DOCKER_BIN" pull "$IMG_COORD"
+	else
+		echo 'Neither locally-built nor remotely-built image is present. Try using `--download` to try downloading prebuilt image from ghcr.io.'
+		exit 2
+	fi
+fi
+
+# If --shell used, invoke /bin/sh
+if [ "$SHELL_FLAG" = 1 ]; then
+	COMMAND=/bin/sh
+	EXTRA_OPTS="-it $EXTRA_OPTS"
+else
+	COMMAND="./ci-$TARGET$SUBTARGET"
+fi
+
+if [ -n "$GITHUB_ACTIONS" ]; then
+	echo "GITHUB_ACTIONS=$GITHUB_ACTIONS"
+	echo "GITHUB_RUN_ID=$GITHUB_RUN_ID"
+	echo "GITHUB_RUN_NUMBER=$GITHUB_RUN_NUMBER"
+	echo "GH_JOB_ID=$GH_JOB_ID"
+	echo "GH_HTML_URL=$GH_HTML_URL"
+fi
+
+if [ "$DO_COMPARE_FLAG" = 1 ]; then
+	PREV_REPORT_DIR="ci_results/$TARGET$SUBTARGET/$IMPLEMENTATION-$OS-$ARCH"
+
+	./report-download-github "$TARGET" "$SUBTARGET" "$IMPLEMENTATION" "$OS" "$ARCH" \
+		&& PREV_REPORT="$PREV_REPORT_DIR/ci.json" || PREV_REPORT=
+
+	if [ "$TARGET" = java ] || [ "$TARGET" = python ]; then
+		./report-download-github "$TARGET"-write "$SUBTARGET" "$IMPLEMENTATION" "$OS" "$ARCH" \
+			&& PREV_REPORT_WRITE="$PREV_REPORT_DIR/ci-write.json" || PREV_REPORT_WRITE=
+	fi
+fi
+
+if [ "$REBUILD_FLAG" = 1 ]; then
+	cleanup_bin
+fi
+
+# If we run in Mingw/MSYS environment on Windows, it will invoke `docker.exe` here,
+# but it will attempt to do Linux-to-Windows paths conversion with `cygpath.exe`.
+# We disable it with MSYS2_ARG_CONV_EXCL argument: looks like `docker.exe` is
+# intelligent enough to understand Mingw-style Windows paths by itself.
+#
+# See https://www.msys2.org/docs/filesystem-paths/
+
+MSYS2_ARG_CONV_EXCL='*' "$DOCKER_BIN" run $EXTRA_OPTS \
+	--rm \
+	-e GITHUB_ACTIONS \
+	-e GITHUB_RUN_ID \
+	-e GITHUB_RUN_NUMBER \
+	-e GH_JOB_ID \
+	-e GH_HTML_URL \
+	-v "$TESTS_DIR":/tests \
+	-v "$TESTS_DIR/../runtime":/runtime \
+	-w /tests \
+	--network none \
+	"$IMG_COORD" \
+	"$COMMAND"
+
+if [ "$DO_COMPARE_FLAG" = 1 ]; then
+	READONLY_APPENDIX=
+	# Check if the `PREV_REPORT_WRITE` variable is set (method from
+	# https://stackoverflow.com/a/13864829)
+	if ! [ -z ${PREV_REPORT_WRITE+x} ]; then
+		READONLY_APPENDIX=' (read-only test suite)'
+	fi
+	echo "# Comparison with previous$READONLY_APPENDIX"
+	echo
+	aggregate/compare_with_prev \
+		"$PREV_REPORT" \
+		"test_out/$TARGET$SUBTARGET/ci.json"
+
+	if ! [ -z ${PREV_REPORT_WRITE+x} ]; then
+		echo
+		echo "# Comparison with previous (read-write test suite)"
+		echo
+		aggregate/compare_with_prev \
+			"$PREV_REPORT_WRITE" \
+			"test_out/$TARGET$SUBTARGET-write/ci.json"
+	fi
+fi

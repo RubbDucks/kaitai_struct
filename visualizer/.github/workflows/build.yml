@@ -1,0 +1,39 @@
+name: build
+
+on:
+  push:
+    branches:
+      - master
+  pull_request: {}
+
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: restore
+        run: sudo .build/restore-deb.sh
+      - name: install editorconfig-checker
+        run: |
+          curl -fsSL -O https://github.com/editorconfig-checker/editorconfig-checker/releases/download/v3.3.0/editorconfig-checker_3.3.0_linux_amd64.deb
+          echo 'a25202c3a9cbbbd8697044f48b7a50650028cbafa498f30ae2be0f3d808e3029 *editorconfig-checker_3.3.0_linux_amd64.deb' | sha256sum -c -w
+          sudo apt-get install ./editorconfig-checker_3.3.0_linux_amd64.deb
+        working-directory: ${{ runner.temp }}
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.4'
+          bundler-cache: true
+      - name: test
+        run: bundle exec rspec --force-color
+      - name: rubocop
+        run: bundle exec rubocop --color || true
+      - name: check for .editorconfig violations in non-Ruby files
+        # RuboCop has already checked Ruby files for issues that editorconfig-checker
+        # checks for, so we're excluding Ruby files here.
+        run: editorconfig-checker -exclude '^bin/ksdump$|^bin/ksv$|\.rb$|\.gemspec$|^Gemfile$'
+      - name: gem build
+        run: gem build kaitai-struct-visualizer
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kaitai-struct-visualizer
+          path: kaitai-struct-visualizer-*.gem

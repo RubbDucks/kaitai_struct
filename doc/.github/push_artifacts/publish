@@ -1,0 +1,203 @@
+#!/usr/bin/env sh
+set -ef
+
+# publish: publishes build results to a certain repository.
+#
+# Copyright (C) 2016-2020 Kaitai Project
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+usage()
+{
+	echo "Usage: $0 -o <login> -r <name> [ -b <name> ] [ -d <subdir> ] [ -m <msg> ] -- [ --exclude=<path> ]... <srcdir>... | --help"
+	echo
+	echo "Example: $0 -o kaitai-io -r ci_artifacts -b my-branch -- --exclude=.git --exclude=.travis.yml tests/test_out"
+	echo
+	echo 'Arguments:'
+	echo '  <srcdir>'
+	echo '          source directory to publish'
+	echo
+	echo 'Options:'
+	echo
+	echo '  -o, --owner <login>'
+	echo '          login of the GitHub user or organization which owns the target repository'
+	echo
+	echo '  -r, --repo <name>'
+	echo '          name of the target repository'
+	echo
+	echo '  -b, --branch <name>'
+	echo '          branch of the target repository to which to publish (optional)'
+	echo
+	echo '  -d, --outdir <subdir>'
+	echo '          destination subdirectory in the target repo where to publish the <srcdir> contents (optional)'
+	echo
+	echo '  -m, --commit-msg <msg>'
+	echo '          commit message (optional, default: "Submitted results from Travis build")'
+	echo
+	echo '  --exclude=<path>'
+	echo '          exclude path from being published (optional)'
+	echo
+	echo '  -h, --help'
+	echo '          show this help'
+}
+
+while [ "$1" != "" ]; do
+	# xargs trims the whitespace around the option
+	case $(echo "$1" | xargs) in
+		-o | --owner )
+			shift
+			owner=$1
+			;;
+		-r | --repo )
+			shift
+			repo=$1
+			;;
+		-b | --branch )
+			shift
+			branch=$1
+			;;
+		-d | --outdir )
+			shift
+			outdir=$1
+			;;
+		-m | --commit-msg )
+			shift
+			commit_msg=$1
+			;;
+		-h | --help )
+			usage
+			exit
+			;;
+		-- ) # end of options
+			shift
+			break
+			;;
+		* )
+			echo "Error: unknown option $1"
+			echo
+			usage
+			exit 1
+			;;
+	esac
+	shift
+done
+
+if [ -z "$owner" ]; then
+	echo 'Error: missing option -o (--owner)'
+	echo
+	usage
+	exit 1
+fi
+
+if [ -z "$repo" ]; then
+	echo 'Error: missing option -r (--repo)'
+	echo
+	usage
+	exit 1
+fi
+
+if [ -z "$BOT_SSH_KEY" ]; then
+	echo "BOT_SSH_KEY is not set!"
+	exit 1
+fi
+
+unset SSH_AGENT_PID SSH_AUTH_SOCK
+
+echo 'Setting up bot key... '
+echo "$BOT_SSH_KEY" | base64 --decode > "$HOME"/bot_id
+chmod 600 "$HOME"/bot_id
+echo OK
+
+echo 'Checking if key looks valid... '
+key_head=$(head -n1 "$HOME"/bot_id)
+if [ "$key_head" != '-----BEGIN RSA PRIVATE KEY-----' ]; then
+	echo 'Nope, key seems to be invalid'
+	exit 1
+fi
+echo 'OK, '
+
+echo 'Setting up known_hosts'
+mkdir -p "$HOME"/.ssh
+chmod 700 "$HOME"/.ssh
+touch -a "$HOME"/.ssh/known_hosts
+
+# /etc/ssh/ssh_known_hosts may not exist, but 'grep' keeps working as long as at
+# least one file exists (and "$HOME"/.ssh/known_hosts exists, because we used
+# 'touch' to create it in case it didn't exist before)
+if grep -q '^github.com ssh-rsa ' /etc/ssh/ssh_known_hosts "$HOME"/.ssh/known_hosts; then
+	echo '... the "github.com ssh-rsa" key is already present'
+else
+	echo '... misses "github.com ssh-rsa" key, adding'
+	echo 'github.com ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQCj7ndNxQowgcQnjshcLrqPEiiphnt+VTTvDP6mHBL9j1aNUkY4Ue1gvwnGLVlOhGeYrnZaMgRK6+PKCUXaDbC7qtbW8gIkhL7aGCsOr/C56SJMy/BCZfxd1nWzAOxSDPgVsmerOBYfNqltV9/hWCqBywINIR+5dIg6JTJ72pcEpEjcYgXkE2YEFXV1JHnsKgbLWNlhScqb2UmyRkQyytRLtL+38TGxkxCflmO+5Z8CSSNY7GidjMIZ7Q4zMjA2n1nGrlTDkzwDCsw+wqFPGQA179cnfGWOWRVruj16z6XyvxvjJwbz0wQZ75XK5tKSb7FNyeIEs4TT4jk+S4dhPeAUC5y+bDYirYgM4GC7uEnztnZyaVWQ7B381AK4Qdrwt51ZqExKbQpTUNn+EjqoTwvqNj4kqx5QUCI0ThS/YkOxJCXmPUWZbhjpCg56i+2aB6CmK2JGhn57K5mj0MNdBXA4/WnwH6XoPWJzK5Nyu2zB3nAZp+S5hpQs+p1vN1/wsjk=' >> "$HOME"/.ssh/known_hosts
+fi
+
+# Dump bot_id SHA1 to check key validity. Linux uses "sha1sum", OS X uses
+# "shasum", but even if both fails, it's not super critical.
+sha1sum "$HOME"/bot_id || shasum "$HOME"/bot_id || :
+
+# Alas, it seems that Travis CI uses ancient git that doesn't support this
+#export GIT_SSH_COMMAND="ssh -i $HOME/bot_id"
+
+# Squelch long git push strategy explanations
+git config --global push.default simple
+
+echo 'Setting up ssh wrapper... '
+cat >"$HOME"/git-ssh <<__EOF__
+#!/usr/bin/env sh
+set -efx
+ssh -i "$HOME/bot_id" "\$@"
+__EOF__
+chmod a+x "$HOME"/git-ssh
+export GIT_SSH="$HOME/git-ssh"
+echo 'OK'
+
+echo 'Cloning website repo...'
+if git clone ${branch:+--branch "$branch"} git@github.com:"$owner"/"$repo".git; then
+	echo "OK"
+else
+	echo "Branch seems to be not available => trying to create it"
+	git clone git@github.com:"$owner"/"$repo".git
+	cd "$repo"
+	git checkout -b "$branch"
+	cd ..
+fi
+
+echo 'Finding rsync executable...'
+if rsync --version; then
+	RSYNC_BIN=rsync
+elif /c/cygwin64/bin/rsync.exe --version; then
+	RSYNC_BIN=/c/cygwin64/bin/rsync.exe
+else
+	echo "Unable to find rsync, bailing out :("
+	exit 1
+fi
+
+if [ -n "$outdir" ]; then
+	outdir=/"$outdir"
+fi
+
+echo 'Updating the files...'
+"$RSYNC_BIN" --delete-after -c -r -v "$@" "$repo""$outdir"
+
+echo 'Adding and committing...'
+cd "$repo"
+git add --all .
+git commit -m "${commit_msg:-Submitted results from Travis build}"
+
+echo 'Pushing...'
+git push -u origin ${branch:+"$branch"}
+
+echo 'Cleaning up the key and wrapper... '
+rm "$HOME/bot_id" "$HOME/git-ssh"
+echo OK

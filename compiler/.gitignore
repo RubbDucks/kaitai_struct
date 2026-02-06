@@ -1,0 +1,30 @@
+# IntelliJ IDEA project files
+*.iml
+*.iws
+.idea/*
+/out/
+
+# Still allow storage of IDEA runConfigurations in the repository
+!.idea/runConfigurations
+
+# mpeltonen/sbt-idea plugin
+.idea_modules/
+
+# Simple Build Tool
+# http://www.scala-sbt.org/release/docs/Getting-Started/Directories.html#configuring-version-control
+
+target/
+lib_managed/
+src_managed/
+project/boot/
+.history
+.cache
+.bsp
+
+# scalameta.metals VSCode Extension (Scala language server)
+.bloop/
+metals.sbt
+
+# Unpacking complete binaries for testing purposes
+/runnable
+js/npm

@@ -1,0 +1,39 @@
+name: test
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+
+permissions: {}
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    defaults:
+      run:
+        working-directory: compiler
+    steps:
+      - name: Checkout compiler
+        uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+          path: compiler
+      - name: Checkout tests
+        uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+          repository: kaitai-io/kaitai_struct_tests
+          path: tests
+      - name: Set up JDK 25
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '25'
+      - uses: sbt/setup-sbt@v1
+      - name: Run tests
+        run: sbt test
