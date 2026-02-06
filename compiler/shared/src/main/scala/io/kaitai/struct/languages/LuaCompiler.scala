@@ -32,7 +32,7 @@ class LuaCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
     importList.toList.mkString("", "\n", "\n")
 
   override def externalTypeDeclaration(extType: ExternalType): Unit =
-    importList.add("require(\"" + extType.name.head + "\")")
+    addRequire(extType.name.head)
 
   override def fileHeader(topClassName: String): Unit = {
     outHeader.puts(s"-- $headerComment")
@@ -40,8 +40,10 @@ class LuaCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
     outHeader.puts("-- This file is compatible with Lua 5.3")
     outHeader.puts
 
+    outHeader.puts(s"${type2class(topClassName)} = ${type2class(topClassName)} or {}")
+
     importList.add("local class = require(\"class\")")
-    importList.add("require(\"kaitaistruct\")")
+    addRequire("kaitaistruct")
 
     out.puts
   }
@@ -82,14 +84,14 @@ class LuaCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
     val endianAdd = if (isHybrid) ", is_le" else ""
     val paramsList = Utils.join(params.map((p) => paramName(p.id)), "", ", ", ", ")
 
-    out.puts(s"function ${types2class(name)}:_init($paramsList" + s"io, parent, root$endianAdd)")
+    out.puts(s"function ${types2class(name)}:_init($paramsList" + s"io, _parent, _root$endianAdd)")
     out.inc
     out.puts(s"$kstructName._init(self, io)")
-    out.puts("self._parent = parent")
+    out.puts("self._parent = _parent")
     if (name == rootClassName) {
-      out.puts("self._root = root or self")
+      out.puts("self._root = _root or self")
     } else {
-      out.puts("self._root = root")
+      out.puts("self._root = _root")
     }
     if (isHybrid)
       out.puts("self._is_le = is_le")
@@ -225,7 +227,7 @@ class LuaCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
       case ProcessCustom(name, args) =>
         val procName = s"_process_${idToStr(varSrc)}"
 
-        importList.add("require(\"" + s"${name.last}" + "\")")
+        addRequire(s"${name.last}")
 
         out.puts(s"local $procName = ${types2class(name)}(${args.map(expression).mkString(", ")})")
         s"$procName:decode($srcExpr)"
@@ -282,6 +284,11 @@ class LuaCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
     out.dec
     out.puts("}")
     out.puts
+  }
+
+  private def addRequire(moduleName: String): Unit = {
+    val globalName = if (moduleName == "kaitaistruct") "KaitaiStruct" else type2class(moduleName)
+    importList.add(s"if _G[\"$globalName\"] == nil then require(\"$moduleName\") end")
   }
 
   override def idToStr(id: Identifier): String = LuaCompiler.idToStr(id)
@@ -348,6 +355,26 @@ class LuaCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
       }
       s"${types2class(t.classSpec.get.name)}($addParams$io$addArgs)"
   }
+  override def attrParse2(
+    id: Identifier,
+    dataType: DataType,
+    io: String,
+    rep: RepeatSpec,
+    isRaw: Boolean,
+    defEndian: Option[FixedEndian],
+    assignTypeOpt: Option[DataType] = None
+  ): Unit = dataType match {
+    case t: EnumType =>
+      val assignType = assignTypeOpt.getOrElse(dataType)
+      val rawVar = localTemporaryName(id)
+      val rawExpr = parseExpr(t.basedOn, io, defEndian)
+      handleAssignmentTempVar(t.basedOn, rawVar, rawExpr)
+      val enumExpr = translator.doEnumById(t.enumSpec.get, rawVar)
+      handleAssignment(id, s"(($enumExpr) ~= nil and ($enumExpr) or $rawVar)", rep, isRaw, dataType, assignType)
+    case _ =>
+      super.attrParse2(id, dataType, io, rep, isRaw, defEndian, assignTypeOpt)
+  }
+
   override def bytesPadTermExpr(expr0: String, padRight: Option[Int], terminator: Option[Seq[Byte]], include: Boolean): String = {
     val expr1 = padRight match {
       case Some(padByte) => s"$kstreamName.bytes_strip_right($expr0, $padByte)"
@@ -444,10 +471,8 @@ class LuaCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
     err: ValidationNotInEnumError,
     useIo: Boolean
   ): Unit = {
-    // NOTE: this condition works for now because we haven't implemented
-    // https://github.com/kaitai-io/kaitai_struct/issues/778 for Lua yet, but
-    // it will need to be changed when we do.
-    attrValidate(attr, s"${translator.translate(valueExpr)} == nil", err, useIo, valueExpr, None)
+    val valueStr = translator.translate(valueExpr)
+    attrValidate(attr, s"type($valueStr) ~= \"table\"", err, useIo, valueExpr, None)
   }
 
   private def attrValidate(
