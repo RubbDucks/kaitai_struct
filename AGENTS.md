@@ -1,9 +1,9 @@
-# Kaitai Struct umbrella repository guidance
+# Kaitai Struct flattened repository guidance
 
 ## Repo purpose
-This repository is an umbrella checkout of the Kaitai Struct ecosystem. Most code lives in git submodules; make changes in the appropriate submodule and commit there unless you are explicitly asked to update this umbrella repository (e.g., adding this file). The `README.md` in this repo explicitly warns against editing here unless you are changing umbrella-level content.
+This repository is a flattened checkout of the Kaitai Struct ecosystem. All components now live in this single repository, so make changes directly in the appropriate top-level directories.
 
-When responding to requests, remember this is the top-level umbrella repository with submodules. If a change belongs in a submodule, make the change there and provide a patch for those submodule changes so it can be applied to the real upstream repositories later.
+When responding to requests, remember this is a unified repository (not an umbrella with submodules). If a change belongs to a specific component, edit it in place under its directory.
 
 ## Key documentation to know
 These are the core references for the language and ecosystem behavior:
@@ -11,7 +11,7 @@ These are the core references for the language and ecosystem behavior:
 - Adding a new target language: how to plan code generation mappings, runtime implementation, and the testing pipeline for a new target.
 - Developers memo (in `doc/developers.adoc`): build/test expectations across compiler, tests, runtimes, docs, and visualizer.
 
-## Submodule map (what lives where)
+## Component map (what lives where)
 - `compiler/`: Scala-based Kaitai Struct compiler (`ksc`).
 - `tests/`: shared format specs and multi-language test harness/scripts.
 - `runtime/*`: runtime libraries for each target language (C++ STL, C#, Go, Java, JavaScript, Lua, Nim, Perl, PHP, Python, Ruby, Rust, Zig).
@@ -20,26 +20,18 @@ These are the core references for the language and ecosystem behavior:
 - `doc/`: AsciiDoc sources and build scripts for documentation site.
 - `benchmarks/`: benchmarks and data generators.
 
-## Working with submodules
-- Initialize/update submodules:
-  ```sh
-  git submodule update --init --recursive
-  ```
-- Most changes should be committed inside the relevant submodule repository.
-- If you need to adjust the submodule revisions tracked by this umbrella repo, update the submodule and commit the submodule pointer here.
+## Working in this repository
+- There are no git submodules.
+- Commit changes directly in this repository.
 
 ## Clean setup and full build/test order (from scratch)
 If you need a completely clean environment and want to build/run *everything*, follow this order.
 The goal is to make sure the compiler exists before compiling formats, then run per-language tests.
 
-### 1) Clone + submodules
+### 1) Clone
 ```sh
-git clone --recursive https://github.com/kaitai-io/kaitai_struct.git
+git clone https://github.com/kaitai-io/kaitai_struct.git
 cd kaitai_struct
-```
-If you forgot `--recursive`, run:
-```sh
-git submodule update --init --recursive
 ```
 
 ### 2) Install core prerequisites (compiler + common tooling)
@@ -129,8 +121,8 @@ Use `ci-<lang>` scripts for CI-style logs/outputs.
 - Use `./ci-python` to run `spec` and `specwrite` suites separately when
   debugging write-path failures.
 
-## Build & test entry points (by submodule)
-Use these as starting points; they reflect the standard workflows documented in each submodule.
+## Build & test entry points (by component)
+Use these as starting points; they reflect the standard workflows documented in each component.
 
 ### Compiler (`compiler/`)
 - Built with sbt (Scala). From `compiler/`:
@@ -143,7 +135,7 @@ Use these as starting points; they reflect the standard workflows documented in 
   ```
 
 ### Tests (`tests/`)
-- The test harness assumes the compiler and runtimes exist in default submodule locations.
+- The test harness assumes the compiler and runtimes exist in default component locations.
 - Standard flow (from `tests/`):
   ```sh
   ./build-compiler
@@ -186,6 +178,6 @@ When editing `.ksy` specs or generator logic, keep these core concepts in mind:
 - Integrate with the shared test suite in `tests/`.
 
 ## Contribution hygiene
-- Keep commits scoped to the correct submodule.
-- Prefer running submodule-local tests before changing submodule pointers here.
+- Keep commits scoped to the correct component.
+- Prefer running component-local tests before broad changes.
 - For user-facing changes, update documentation in `doc/` when appropriate.
