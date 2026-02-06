@@ -1,17 +1,15 @@
-# Kaitai Struct flattened repository guidance
-
-## Repo purpose
-This repository is a flattened checkout of the Kaitai Struct ecosystem. All components now live in this single repository, so make changes directly in the appropriate top-level directories.
-
-When responding to requests, remember this is a unified repository (not an umbrella with submodules). If a change belongs to a specific component, edit it in place under its directory.
+# Kaitai Struct repository guidance
 
 ## Key documentation to know
+
 These are the core references for the language and ecosystem behavior:
+
 - Kaitai Struct user guide: language overview, type system, sequences/instances, expression language, streams/substreams, and advanced techniques.
 - Adding a new target language: how to plan code generation mappings, runtime implementation, and the testing pipeline for a new target.
 - Developers memo (in `doc/developers.adoc`): build/test expectations across compiler, tests, runtimes, docs, and visualizer.
 
 ## Component map (what lives where)
+
 - `compiler/`: Scala-based Kaitai Struct compiler (`ksc`).
 - `tests/`: shared format specs and multi-language test harness/scripts.
 - `runtime/*`: runtime libraries for each target language (C++ STL, C#, Go, Java, JavaScript, Lua, Nim, Perl, PHP, Python, Ruby, Rust, Zig).
@@ -21,26 +19,25 @@ These are the core references for the language and ecosystem behavior:
 - `benchmarks/`: benchmarks and data generators.
 
 ## Working in this repository
+
 - There are no git submodules.
 - Commit changes directly in this repository.
 
 ## Clean setup and full build/test order (from scratch)
-If you need a completely clean environment and want to build/run *everything*, follow this order.
+
+If you need a completely clean environment and want to build/run _everything_, follow this order.
 The goal is to make sure the compiler exists before compiling formats, then run per-language tests.
 
-### 1) Clone
-```sh
-git clone https://github.com/kaitai-io/kaitai_struct.git
-cd kaitai_struct
-```
+### 1) Install core prerequisites (compiler + common tooling)
 
-### 2) Install core prerequisites (compiler + common tooling)
 The compiler is required for **all** tests and format builds.
 Minimum requirements from the developer memo:
+
 - Java Runtime Environment (JRE)
 - sbt (Scala Build Tool)
 
 Example Debian/Ubuntu install for sbt/JRE (from `doc/developers.adoc`):
+
 ```sh
 echo "deb https://repo.scala-sbt.org/scalasbt/debian all main" | sudo tee /etc/apt/sources.list.d/sbt.list
 echo "deb https://repo.scala-sbt.org/scalasbt/debian /" | sudo tee /etc/apt/sources.list.d/sbt_old.list
@@ -49,9 +46,11 @@ sudo apt-get update
 sudo apt-get install sbt
 ```
 
-### 3) Install per-language toolchains/runtimes (required for full test suite)
-To run `tests/run-*` scripts across *all* languages, install the
+### 2) Install per-language toolchains/runtimes (required for full test suite)
+
+To run `tests/run-*` scripts across _all_ languages, install the
 language toolchains and build tools for each runtime:
+
 - C++ (gcc/clang, make/cmake, Boost for cpp_stl tests)
 - C# (.NET SDK or Mono)
 - Go (Go toolchain)
@@ -69,6 +68,7 @@ language toolchains and build tools for each runtime:
 
 For C++ tests specifically, make sure you have `cmake`, a C++ compiler,
 `make`, `libboost-all-dev`, and `zlib` headers installed. On Debian/Ubuntu:
+
 ```sh
 sudo apt-get install build-essential cmake libboost-all-dev zlib1g-dev
 ```
@@ -76,23 +76,30 @@ sudo apt-get install build-essential cmake libboost-all-dev zlib1g-dev
 If you prefer not to install all toolchains locally, use `tests/docker-ci`
 which runs tests in prebuilt images that include all dependencies.
 
-### 4) Build the compiler (stage build for tests)
+### 3) Build the compiler (stage build for tests)
+
 From the `tests/` directory, use the standard helper:
+
 ```sh
 cd tests
 ./build-compiler
 ```
+
 This produces a locally runnable compiler (stage build).
 
-### 5) Compile test formats
+### 4) Compile test formats
+
 ```sh
 cd tests
 ./build-formats
 ```
+
 This generates `tests/compiled/$LANGUAGE` outputs from `tests/formats/`.
 
-### 6) Run language tests
+### 5) Run language tests
+
 Run each language-specific test suite as needed:
+
 ```sh
 cd tests
 ./run-python
@@ -100,9 +107,11 @@ cd tests
 ./run-ruby
 # ...other run-<lang> scripts
 ```
+
 Use `ci-<lang>` scripts for CI-style logs/outputs.
 
 ### C++ test caveats (cpp_stl_11 vs cpp_stl_98)
+
 - The compiler target is `cpp_stl` with `--cpp-standard` selecting 98 or 11.
   When invoking the compiler manually, remember that `-d` needs to be
   preceded by `--` so the output directory is not parsed as an input file.
@@ -112,6 +121,7 @@ Use `ci-<lang>` scripts for CI-style logs/outputs.
 - If you still need C++98 runs, expect failures on formats that require C++11.
 
 ### Python test caveats
+
 - Python tests use `runtime/python` via `PYTHONPATH` (see `tests/run-python`), not
   the PyPI package. If you see `ImportError: cannot import name 'PY2'`, ensure
   the runtime defines `PY2` for compatibility with older specwrite helpers.
@@ -122,9 +132,11 @@ Use `ci-<lang>` scripts for CI-style logs/outputs.
   debugging write-path failures.
 
 ## Build & test entry points (by component)
+
 Use these as starting points; they reflect the standard workflows documented in each component.
 
 ### Compiler (`compiler/`)
+
 - Built with sbt (Scala). From `compiler/`:
   ```sh
   sbt test
@@ -135,6 +147,7 @@ Use these as starting points; they reflect the standard workflows documented in 
   ```
 
 ### Tests (`tests/`)
+
 - The test harness assumes the compiler and runtimes exist in default component locations.
 - Standard flow (from `tests/`):
   ```sh
@@ -145,6 +158,7 @@ Use these as starting points; they reflect the standard workflows documented in 
 - Per-language runners are `run-<lang>` scripts.
 
 ### Documentation (`doc/`)
+
 - Build the HTML docs with Asciidoctor and bundler:
   ```sh
   bundle install
@@ -152,6 +166,7 @@ Use these as starting points; they reflect the standard workflows documented in 
   ```
 
 ### Visualizer (`visualizer/`)
+
 - Ruby-based; install dependencies and run locally:
   ```sh
   bundle install
@@ -159,25 +174,31 @@ Use these as starting points; they reflect the standard workflows documented in 
   ```
 
 ### Runtimes (`runtime/*`)
+
 - Each runtime has its own language-specific build/test workflow; check its README for details.
 
 ### Formats (`formats/`)
+
 - Primarily `.ksy` specs. Use the compiler or Web IDE to validate changes.
 
 ## Language concepts (from the user guide)
+
 When editing `.ksy` specs or generator logic, keep these core concepts in mind:
+
 - Sequence-driven parsing with explicit types and sizes.
 - Instances (computed or parsed after the main sequence) for derived values.
 - Repetition, conditionals, and switch-on expressions for variant layouts.
 - Streams/substreams with size-limits, absolute/relative positioning, and processing (compression/encryption) steps.
 
 ## Adding a new target language (high level)
+
 - Map KS types/structures, expression semantics, and stream access to the target language idioms.
 - Implement a runtime library in that language.
 - Manually compile a sample `.ksy` (hello_world) and build out tests.
 - Integrate with the shared test suite in `tests/`.
 
 ## Contribution hygiene
+
 - Keep commits scoped to the correct component.
 - Prefer running component-local tests before broad changes.
 - For user-facing changes, update documentation in `doc/` when appropriate.
