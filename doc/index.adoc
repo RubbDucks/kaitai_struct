@@ -32,6 +32,7 @@
 * <<lang_javascript.adoc#,JavaScript>>
 * <<lang_php.adoc#,PHP>>
 * <<lang_python.adoc#,Python>>
+* <<lang_wireshark_lua.adoc#,Wireshark Lua dissector>>
 
 == Want to contribute to KS development?
 

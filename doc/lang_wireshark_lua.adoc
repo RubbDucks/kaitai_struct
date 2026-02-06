@@ -1,0 +1,48 @@
+= Kaitai Struct: Wireshark Lua dissector notes
+
+This compiler target emits Lua code intended for use as a Wireshark dissector.
+The generated script embeds a regular Kaitai Struct Lua parser and adds a
+Wireshark-facing `Proto` definition with a basic dissector function.
+
+== Generating a dissector
+
+Use the `wireshark_lua` target to generate a Lua file:
+
+[source,sh]
+----
+kaitai-struct-compiler --target wireshark_lua --outdir out/ path/to/format.ksy
+----
+
+The resulting file is named `<format>_wireshark.lua`.
+
+== Runtime requirements
+
+The generated dissector depends on the standard Kaitai Struct Lua runtime.
+Ensure the following runtime files are available on Wireshark's Lua module path:
+
+* `runtime/lua/class.lua`
+* `runtime/lua/kaitaistruct.lua`
+* `runtime/lua/string_stream.lua`
+* `runtime/lua/string_decode.lua`
+* `runtime/lua/utils.lua`
+* `runtime/lua/enum.lua`
+* `runtime/lua/zzlib/` (only if your format uses `process: zlib`)
+
+You can copy the runtime directory into your Wireshark plugins folder or extend
+`package.path` inside the dissector script to point at it.
+
+== Registering the dissector
+
+The generated Lua script includes a placeholder registration block:
+
+[source,lua]
+----
+local my_proto_default_port = 0
+if my_proto_default_port > 0 then
+  DissectorTable.get("tcp.port"):add(my_proto_default_port, my_proto)
+end
+----
+
+Set `my_proto_default_port` to the TCP (or UDP) port your protocol uses, or
+replace the `DissectorTable.get("tcp.port")` call with the appropriate table
+for your protocol (for example, `"udp.port"` or `"wtap_encap"`).

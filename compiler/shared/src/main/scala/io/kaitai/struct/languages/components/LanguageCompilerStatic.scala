@@ -18,6 +18,7 @@ object LanguageCompilerStatic {
     "java" -> JavaCompiler,
     "javascript" -> JavaScriptCompiler,
     "lua" -> LuaCompiler,
+    "wireshark_lua" -> WiresharkLuaCompiler,
     "nim" -> NimCompiler,
     "perl" -> PerlCompiler,
     "php" -> PHPCompiler,
