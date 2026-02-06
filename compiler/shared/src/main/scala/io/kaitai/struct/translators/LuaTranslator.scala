@@ -67,6 +67,16 @@ class LuaTranslator(provider: TypeProvider, importList: ImportList) extends Base
   override def strLiteralUnicode(code: Char): String =
     "\\u{%04x}".format(code.toInt)
 
+  override def strLiteralGenericCC(code: Char): String =
+    "\\%03d".format(code.toInt)
+
+  override def strLiteralAsciiChar(code: Char): String =
+    if (code >= 0x80) {
+      Character.toString(code)
+    } else {
+      super.strLiteralAsciiChar(code)
+    }
+
   override def genericBinOp(left: Ast.expr, op: Ast.binaryop, right: Ast.expr, extPrec: Int) = {
     (detectType(left), detectType(right), op) match {
       case (_: IntType, _: IntType, Ast.operator.Div) =>
@@ -124,7 +134,7 @@ class LuaTranslator(provider: TypeProvider, importList: ImportList) extends Base
     s"tonumber(${translate(s)}$add)"
   }
   override def enumToInt(v: Ast.expr, et: EnumType): String =
-    s"${translate(v)}.value"
+    s"((type(${translate(v)}) == \"table\") and ${translate(v)}.value or ${translate(v)})"
   override def boolToInt(v: Ast.expr): String =
     s"(${translate(v)} and 1 or 0)"
   override def floatToInt(v: Ast.expr): String =
