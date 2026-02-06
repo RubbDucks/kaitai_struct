@@ -202,3 +202,20 @@ When editing `.ksy` specs or generator logic, keep these core concepts in mind:
 - Keep commits scoped to the correct component.
 - Prefer running component-local tests before broad changes.
 - For user-facing changes, update documentation in `doc/` when appropriate.
+
+## Local environment acceleration notes (important)
+
+- This repository fork intentionally keeps only these targets: `cpp_stl`, `lua`, `wireshark_lua`, `python`, `ruby`.
+- For C++ tests, `tests/run-cpp_stl_11` expects generated sources in `tests/compiled/cpp_stl_11/`. Generate them with:
+  - `kaitai-struct-compiler -- --verbose file -t cpp_stl --cpp-standard 11 -d tests/compiled/cpp_stl_11 ...`
+  - If you only run `tests/build-formats cpp_stl`, you'll populate `compiled/cpp_stl` (not `compiled/cpp_stl_11`) and C++ tests can degrade to empty/partial trees.
+- Lua runtime/tests need Lua >= 5.3 and < 5.5 (5.3/5.4). Some environments default to Lua 5.1; switch interpreter before running tests.
+- Lua test dependencies used by `tests/run-lua`: `luaunit`, `luafilesystem`; for broad encoding coverage install `lua-iconv` too.
+- If package installation suddenly fails with 404 from Ubuntu mirrors, run `apt-get update` and retry.
+- When debugging Python test regressions, remember the known pitfalls:
+  - missing `PY2` compatibility export in `runtime/python/kaitaistruct.py`
+  - failed short reads on seekable streams must rewind before raising EOF
+
+## Maintenance reminder for future agents
+
+- If you discover any environment quirk, test prerequisite, command nuance, or recurring failure mode while working here, **add a short note to this AGENTS.md immediately** so future runs are faster and less error-prone.

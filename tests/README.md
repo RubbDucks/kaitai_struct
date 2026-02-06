@@ -28,7 +28,7 @@ The overall procedure of testing works as follows:
 
 * Make sure that KS compiler (ksc) is built and ready to be used
 * Compile format descriptions in `formats/` into source files in
-  relevant programming languages (Java, Python, Ruby, etc), which
+  relevant programming languages (C++, Lua, Lua_Wireshark, Python, Ruby), which
   should be placed in `compiled/$LANGUAGE`.
 * Compile and run test code for particular language (located in
   `spec/$LANGUAGE`), which will use files in `src/` for input.
