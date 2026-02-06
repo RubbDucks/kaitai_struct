@@ -217,3 +217,7 @@ When editing `.ksy` specs or generator logic, keep these core concepts in mind:
 
 - Don't be a quiter! keep trying things until you figure it out.
 - The last thing you should always do before submitting your changes back to the uses is run the c++, lua and python Tests and if they dont pass all of there tests then you need to keep going until you have fix it and they all pass!
+
+- `tests/run-lua` requires generated modules under `tests/compiled/lua`; run `tests/build-formats lua` first if modules are missing.
+- On Ubuntu, `lua-iconv` apt package may only satisfy Lua 5.1; for Lua 5.4 tests you may need `liblua5.4-dev` + `luarocks --lua-version=5.4 install lua-iconv`.
+- `tests/run-python` depends on generated `tests/compiled/python/testformats` and `tests/compiled/python/testwrite`; run `tests/build-formats python` before executing it.
