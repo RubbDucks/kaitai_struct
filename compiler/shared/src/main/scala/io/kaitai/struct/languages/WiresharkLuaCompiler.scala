@@ -51,4 +51,9 @@ object WiresharkLuaCompiler extends LanguageCompilerStatic
     tp: ClassTypeProvider,
     config: RuntimeConfig
   ): LanguageCompiler = new WiresharkLuaCompiler(tp, config)
+
+  override def kstructName: String = LuaCompiler.kstructName
+  override def kstreamName: String = LuaCompiler.kstreamName
+  override def ksErrorName(err: io.kaitai.struct.datatype.KSError): String =
+    LuaCompiler.ksErrorName(err)
 }
