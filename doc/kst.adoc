@@ -106,27 +106,17 @@ cd compiler
 sbt publishLocal
 ----
 
-after that, one can invoke it using
-https://github.com/kaitai-io/kaitai_struct_tests/blob/master/spec_kst_to_all[spec_kst_to_all]
-script in tests:
+after that, invoke `kst_translator` directly. In this fork, supported targets are
+`cpp_stl`, `lua`, `wireshark_lua`, `python`, and `ruby`.
 
 ----
 KST translator 0.10
 Usage: kst_translator [options] [<test_name>...]
 
   <test_name>...           source test names (.kst)
-  -t, --target <language>  target languages (construct, cpp_stl_98, cpp_stl_11, csharp, go, java, javascript, nim, perl, php, python, ruby, rust, default: all)
+  -t, --target <language>  target languages (cpp_stl, lua, wireshark_lua, python, ruby, default: all)
   --all-specs              process all KST files available
   -f, --force              force overwrite specs in production spec dirs (default: generate in ../spec/ks/out)
-----
-
-For example, to generate specs in all possible target languages right
-in the all relevant dirs for one KST spec "foo_bar", one can run:
-
-[source,shell]
-----
-cd ../tests
-./spec_kst_to_all -f foo_bar
 ----
 
 == Developing KST translator

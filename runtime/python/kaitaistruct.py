@@ -1,6 +1,7 @@
 import itertools
 import struct
 from io import BytesIO, SEEK_CUR, SEEK_END  # noqa
+import sys
 import warnings
 
 # Kaitai Struct runtime version, in the format defined by PEP 440.
@@ -17,6 +18,7 @@ __version__ = '0.11'
 # Used in generated Python code (since ksc 0.10) to check that the imported
 # runtime is compatible with the generated code.
 API_VERSION = (0, 11)
+PY2 = sys.version_info[0] == 2
 
 # pylint: disable=invalid-name,missing-docstring,too-many-public-methods
 
@@ -385,12 +387,17 @@ class KaitaiStream:
             num_bytes_available = self.size() - self.pos()
             is_satisfiable = (n <= num_bytes_available)
 
+        pos_before_read = None
         if is_satisfiable:
+            if self._io.seekable():
+                pos_before_read = self._io.tell()
             r = self._io.read(n)
             num_bytes_available = len(r)
             is_satisfiable = (n <= num_bytes_available)
 
         if not is_satisfiable:
+            if pos_before_read is not None:
+                self._io.seek(pos_before_read)
             # noinspection PyUnboundLocalVariable
             raise EndOfStreamError(
                 f"requested {n} bytes, but only {num_bytes_available} bytes available",

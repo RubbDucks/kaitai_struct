@@ -9,23 +9,11 @@ trait LanguageCompilerStatic {
 
 object LanguageCompilerStatic {
   val NAME_TO_CLASS: Map[String, LanguageCompilerStatic] = Map(
-    "construct" -> ConstructClassCompiler,
     "cpp_stl" -> CppCompiler,
-    "csharp" -> CSharpCompiler,
-    "graphviz" -> GraphvizClassCompiler,
-    "go" -> GoCompiler,
-    "html" -> HtmlClassCompiler,
-    "java" -> JavaCompiler,
-    "javascript" -> JavaScriptCompiler,
     "lua" -> LuaCompiler,
     "wireshark_lua" -> WiresharkLuaCompiler,
-    "nim" -> NimCompiler,
-    "perl" -> PerlCompiler,
-    "php" -> PHPCompiler,
     "python" -> PythonCompiler,
-    "ruby" -> RubyCompiler,
-    "rust" -> RustCompiler,
-    "zig" -> ZigCompiler
+    "ruby" -> RubyCompiler
   )
 
   val CLASS_TO_NAME: Map[LanguageCompilerStatic, String] = NAME_TO_CLASS.map(_.swap)
