@@ -52,19 +52,12 @@ To run `tests/run-*` scripts across _all_ languages, install the
 language toolchains and build tools for each runtime:
 
 - C++ (gcc/clang, make/cmake, Boost for cpp_stl tests)
-- C# (.NET SDK or Mono)
-- Go (Go toolchain)
 - Java (JDK, Maven/Gradle for tests; TestNG jars are used)
 - JavaScript (Node.js + npm/yarn)
 - Lua
-- Nim
-- Perl (plus CPAN modules used by the runtime/tests)
-- PHP
 - Python (pip + virtualenv recommended)
 - Ruby (bundler)
 - Rust (rustup/cargo)
-- Zig
-- Julia (if running `run-julia`)
 
 For C++ tests specifically, make sure you have `cmake`, a C++ compiler,
 `make`, `libboost-all-dev`, and `zlib` headers installed. On Debian/Ubuntu:
@@ -199,7 +192,6 @@ When editing `.ksy` specs or generator logic, keep these core concepts in mind:
 
 ## Contribution hygiene
 
-- Keep commits scoped to the correct component.
 - Prefer running component-local tests before broad changes.
 - For user-facing changes, update documentation in `doc/` when appropriate.
 
@@ -223,6 +215,5 @@ When editing `.ksy` specs or generator logic, keep these core concepts in mind:
 
 ## Minimum execution bar for change requests
 
-- Do not ship “single-line” config-only edits for migration requests (like language standard bumps) unless the request explicitly asks for that only.
-- For version/standard upgrades, update **all** relevant naming and entry points (scripts, directories, docs, aliases/targets), then run at least one real build + one real test command for the affected component before committing.
-- In final reports, include the exact commands run and whether they passed/failed so reviewers can reproduce quickly.
+- Don't be a quiter! keep trying things until you figure it out.
+- The last thing you should always do before submitting your changes back to the uses is run the c++, lua and python Tests and if they dont pass all of there tests then you need to keep going until you have fix it and they all pass!
