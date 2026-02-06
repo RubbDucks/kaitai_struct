@@ -50,9 +50,9 @@ On a high level, it can be summarized as:
   `language/environment`. For example:
 ** `ruby/1.9` tests "ruby" target language in default (Linux)
    environment, using Ruby 1.9 (at Travis).
-** `cpp_stl_11/msvc141_windows_x64` tests "cpp_stl_11" (which is
+** `cpp_stl_17/msvc141_windows_x64` tests "cpp_stl_17" (which is
    actually a subvariant of "cpp_stl" target with compiler options set
-   to generate exactly C++11 code using STL library), building and
+   to generate C++17 code using STL library), building and
    running it in Windows environment with Microsoft Visual C++
    compiler, toolkit version 141, x64 architecture. This job runs in
    AppVeyor CI.

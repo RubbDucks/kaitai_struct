@@ -40,6 +40,13 @@ case class CppRuntimeConfig(
     useListInitializers = true,
     pointers = CppRuntimeConfig.UniqueAndRawPointers
   )
+
+  /**
+    * Copies this C++ runtime config, applying all the default settings for
+    * C++17 target.
+    */
+  def copyAsCpp17() = copyAsCpp11()
+
 }
 
 object CppRuntimeConfig {
