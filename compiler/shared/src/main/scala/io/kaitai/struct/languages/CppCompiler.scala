@@ -1191,6 +1191,7 @@ object CppCompiler extends LanguageCompilerStatic
         case UniqueAndRawPointers => s"std::unique_ptr<$kstructName>"
       }
       case CalcKaitaiStructType(_) => s"$kstructName*"
+      case AnyType => s"$kstructName*"
 
       case st: SwitchType =>
         kaitaiType2NativeType(config, importListHdr, combineSwitchType(st), absolute)

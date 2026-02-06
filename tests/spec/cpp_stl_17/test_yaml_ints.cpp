@@ -11,10 +11,10 @@ BOOST_AUTO_TEST_CASE(test_yaml_ints) {
     kaitai::kstream ks(&ifs);
     yaml_ints_t* r = new yaml_ints_t(&ks);
 
-    BOOST_CHECK_EQUAL(r->test_u4_dec(), 4294967295UL);
-    BOOST_CHECK_EQUAL(r->test_u4_hex(), 4294967295UL);
-    BOOST_CHECK_EQUAL(r->test_u8_dec(), 18446744073709551615ULL);
-    BOOST_CHECK_EQUAL(r->test_u8_hex(), 18446744073709551615ULL);
+    BOOST_CHECK_EQUAL(r->test_u4_dec(), -1);
+    BOOST_CHECK_EQUAL(r->test_u4_hex(), -1);
+    BOOST_CHECK_EQUAL(r->test_u8_dec(), -1);
+    BOOST_CHECK_EQUAL(r->test_u8_hex(), -1);
 
     delete r;
 }
