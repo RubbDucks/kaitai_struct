@@ -16,7 +16,7 @@ object Main extends App {
   val ALL_LANGS = List(
     "construct",
     "cpp_stl_98",
-    "cpp_stl_11",
+    "cpp_stl_17",
     "csharp",
     "go",
     "java",

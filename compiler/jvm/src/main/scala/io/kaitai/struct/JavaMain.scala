@@ -25,9 +25,9 @@ object JavaMain {
     runtime: RuntimeConfig = RuntimeConfig()
   )
 
-  val ALL_LANGS = LanguageCompilerStatic.NAME_TO_CLASS.keySet - "cpp_stl" + "cpp_stl_98" + "cpp_stl_11"
+  val ALL_LANGS = LanguageCompilerStatic.NAME_TO_CLASS.keySet - "cpp_stl" + "cpp_stl_98" + "cpp_stl_17"
   val VALID_LANGS = LanguageCompilerStatic.NAME_TO_CLASS.keySet + "all"
-  val CPP_STANDARDS = Set("98", "11")
+  val CPP_STANDARDS = Set("98", "11", "17")
 
   def parseCommandLine(args: Array[String]): Option[CLIConfig] = {
     val parser = new scopt.OptionParser[CLIConfig](Version.name) {
@@ -86,10 +86,11 @@ object JavaMain {
             cppConfig = x match {
               case "98" => c.runtime.cppConfig.copyAsCpp98()
               case "11" => c.runtime.cppConfig.copyAsCpp11()
+              case "17" => c.runtime.cppConfig.copyAsCpp17()
             }
           )
         )
-      } text("C++ standard to target (C++ only, supported: 98, 11, default: 98)") validate { x =>
+      } text("C++ standard to target (C++ only, supported: 98, 11, 17, default: 98)") validate { x =>
         if (CPP_STANDARDS.contains(x)) {
           success
         } else {
@@ -380,6 +381,8 @@ class JavaMain(config: CLIConfig) {
         (CppCompiler, config.runtime.copy(cppConfig = config.runtime.cppConfig.copyAsCpp98()))
       case "cpp_stl_11" =>
         (CppCompiler, config.runtime.copy(cppConfig = config.runtime.cppConfig.copyAsCpp11()))
+      case "cpp_stl_17" =>
+        (CppCompiler, config.runtime.copy(cppConfig = config.runtime.cppConfig.copyAsCpp17()))
       case _ =>
         (LanguageCompilerStatic.byString(langStr), config.runtime)
     }

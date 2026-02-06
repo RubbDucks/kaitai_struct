@@ -113,7 +113,7 @@ class TestTranslator(options: CLIOptions) {
   def getSG(lang: String, testSpec: TestSpec, provider: ClassTypeProvider): SpecGenerator = lang match {
     case "construct" => new ConstructSG(testSpec, provider)
     case "cpp_stl_98" => new CppStlSG(testSpec, provider, CppRuntimeConfig().copyAsCpp98())
-    case "cpp_stl_11" => new CppStlSG(testSpec, provider, CppRuntimeConfig().copyAsCpp11())
+    case "cpp_stl_17" => new CppStlSG(testSpec, provider, CppRuntimeConfig().copyAsCpp17())
     case "csharp" => new CSharpSG(testSpec, provider)
     case "go" => new GoSG(testSpec, provider)
     case "java" => new JavaSG(testSpec, provider)

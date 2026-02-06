@@ -113,7 +113,7 @@ class CppTranslator(provider: TypeProvider, importListSrc: CppImportList, import
         // TODO: C++14
       }
     } else {
-      throw new RuntimeException("literal arrays are not yet implemented for C++98 (pass `--cpp-standard 11` to target C++11)")
+      throw new RuntimeException("literal arrays are not yet implemented for C++98 (pass `--cpp-standard 17` to target C++17)")
     }
   }
 
@@ -127,7 +127,7 @@ class CppTranslator(provider: TypeProvider, importListSrc: CppImportList, import
       // TODO: We need to produce an expression, but this is only possible using
       // initializer lists or variadic templates (if we use a helper function),
       // both of which are only available since C++11
-      throw new RuntimeException("non-literal byte arrays are not yet implemented for C++98 (pass `--cpp-standard 11` to target C++11)")
+      throw new RuntimeException("non-literal byte arrays are not yet implemented for C++98 (pass `--cpp-standard 17` to target C++17)")
     }
   }
 
