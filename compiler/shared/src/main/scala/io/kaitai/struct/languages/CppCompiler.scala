@@ -168,7 +168,20 @@ class CppCompiler(
 
     val paramsArg = Utils.join(params.map { case (p) =>
       importDataType(p.dataType)
-      s"${kaitaiType2NativeType(p.dataType)} ${paramName(p.id)}"
+      val paramType = (config.cppConfig.pointers, p.dataType) match {
+        case (UniqueAndRawPointers, at: ArrayType) =>
+          at.elType match {
+            case t: UserType =>
+              importListHdr.addSystem("memory")
+              importListHdr.addSystem("vector")
+              s"std::vector<std::unique_ptr<${types2class(t.name)}>>*"
+            case _ =>
+              kaitaiType2NativeType(p.dataType)
+          }
+        case _ =>
+          kaitaiType2NativeType(p.dataType)
+      }
+      s"$paramType ${paramName(p.id)}"
     }, "", ", ", ", ")
 
     val classNameBrief = types2class(List(name.last))
@@ -734,7 +747,12 @@ class CppCompiler(
 
   override def userTypeDebugRead(id: String, dataType: DataType, assignType: DataType): Unit = {
     val expr = if (assignType.asCombined != dataType) {
-      s"static_cast<${kaitaiType2NativeType(dataType)}>($id)"
+      config.cppConfig.pointers match {
+        case UniqueAndRawPointers =>
+          s"static_cast<${kaitaiType2NativeType(dataType.asNonOwning())}>($id.get())"
+        case RawPointers =>
+          s"static_cast<${kaitaiType2NativeType(dataType)}>($id)"
+      }
     } else {
       id
     }
@@ -836,6 +854,7 @@ class CppCompiler(
   }
 
   override def instanceHeader(className: List[String], instName: InstanceIdentifier, dataType: DataType, isNullable: Boolean): Unit = {
+    importDataType(dataType)
     ensureMode(PublicAccess)
     outHdr.puts(s"${kaitaiType2NativeType(dataType.asNonOwning())} ${publicMemberName(instName)}();")
 
