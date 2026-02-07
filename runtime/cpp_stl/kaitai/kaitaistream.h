@@ -228,6 +228,7 @@ public:
      * result is always 0 <= x <= b - 1.
      */
     static int mod(int a, int b);
+    static int div(int a, int b);
 
     // NB: the following 6 overloads of `to_string` are exactly the ones that
     // [`std::to_string`](https://en.cppreference.com/w/cpp/string/basic_string/to_string) has.

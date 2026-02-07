@@ -100,6 +100,14 @@ class CppTranslator(provider: TypeProvider, importListSrc: CppImportList, import
     '\b' -> "\\b"
   )
 
+  override def strLiteralAsciiChar(code: Char): String = {
+    if (code >= 0x80) {
+      strLiteralUnicode(code)
+    } else {
+      super.strLiteralAsciiChar(code)
+    }
+  }
+
   override def doArrayLiteral(t: DataType, values: Seq[expr]): String = {
     if (config.cppConfig.useListInitializers) {
       importListHdr.addSystem("vector")
@@ -135,6 +143,8 @@ class CppTranslator(provider: TypeProvider, importListSrc: CppImportList, import
     (detectType(left), detectType(right), op) match {
       case (_: IntType, _: IntType, Ast.operator.Mod) =>
         s"${CppCompiler.kstreamName}::mod(${translate(left)}, ${translate(right)})"
+      case (_: IntType, _: IntType, Ast.operator.Div) =>
+        s"${CppCompiler.kstreamName}::div(${translate(left)}, ${translate(right)})"
       case _ =>
         super.genericBinOp(left, op, right, extPrec)
     }
@@ -204,7 +214,7 @@ class CppTranslator(provider: TypeProvider, importListSrc: CppImportList, import
     s"${translate(b, METHOD_PRECEDENCE)}.length()"
 
   override def bytesSubscript(container: Ast.expr, idx: Ast.expr): String =
-    s"${translate(container, METHOD_PRECEDENCE)}.at(${translate(idx)})"
+    s"static_cast<uint8_t>(${translate(container, METHOD_PRECEDENCE)}.at(${translate(idx)}))"
   override def bytesFirst(b: Ast.expr): String = {
     val bStr = translate(b, METHOD_PRECEDENCE)
     config.cppConfig.stdStringFrontBack match {
