@@ -254,6 +254,10 @@ class TypeDetector(provider: TypeProvider) {
           case _ =>
             throw new MethodNotFoundError(methodName.name, objType)
         }
+      case unsupported =>
+        throw new TypeMismatchError(
+          s"can't call expression $unsupported directly; only method calls like `obj.method(...)` are supported"
+        )
     }
   }
 

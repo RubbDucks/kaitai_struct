@@ -124,7 +124,7 @@ abstract trait CommonMethods[T] extends TypeDetector {
       MethodSig2("substring", CalcStrType, (IntArg, IntArg), strSubstring)
     ),
     BooleanArg -> List(
-      MethodSig0("to_i", CalcBooleanType, boolToInt)
+      MethodSig0("to_i", CalcIntType, boolToInt)
     ),
 
     // TODO: do something about return type for arrays here
@@ -212,6 +212,10 @@ abstract trait CommonMethods[T] extends TypeDetector {
           case None =>
             throw new MethodNotFoundError(methodName.name, objType)
         }
+      case unsupported =>
+        throw new TypeMismatchError(
+          s"can't call expression $unsupported directly; only method calls like `obj.method(...)` are supported"
+        )
     }
   }
 

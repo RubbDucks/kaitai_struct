@@ -160,6 +160,23 @@ class ExpressionValidator$Test extends AnyFunSpec {
     }
   }
 
+
+  describe("boolean methods") {
+    it("true.to_i") {
+      val ex = Expressions.parse("true.to_i")
+      alwaysIntValidator.detectType(ex) should be(CalcIntType)
+      alwaysIntValidator.validate(ex)
+    }
+  }
+
+  describe("non-method call expressions") {
+    it("(1 + 2)(3)") {
+      val ex = Expressions.parse("(1 + 2)(3)")
+      val thrown = the [TypeMismatchError] thrownBy alwaysIntValidator.validate(ex)
+      thrown.getMessage should be("can't call expression BinOp(IntNum(1),Add,IntNum(2)) directly; only method calls like `obj.method(...)` are supported")
+    }
+  }
+
   describe("subscripts") {
     it("[1, 3, 14][2]") {
       val ex = Expressions.parse("[1, 3, 14][2]")
