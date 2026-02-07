@@ -220,4 +220,7 @@ When editing `.ksy` specs or generator logic, keep these core concepts in mind:
 
 - `tests/run-lua` requires generated modules under `tests/compiled/lua`; run `tests/build-formats lua` first if modules are missing.
 - On Ubuntu, `lua-iconv` apt package may only satisfy Lua 5.1; for Lua 5.4 tests you may need `liblua5.4-dev` + `luarocks --lua-version=5.4 install lua-iconv`.
+- If `tests/run-lua` can't find `luaunit` in `/usr/local/share/lua/5.4`, your `lua` alternative may still point to 5.1; set both alternatives to 5.4:
+  - `update-alternatives --set lua-interpreter /usr/bin/lua5.4`
+  - `update-alternatives --set lua-compiler /usr/bin/luac5.4`
 - `tests/run-python` depends on generated `tests/compiled/python/testformats` and `tests/compiled/python/testwrite`; run `tests/build-formats python` before executing it.

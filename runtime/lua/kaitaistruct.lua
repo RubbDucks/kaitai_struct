@@ -264,12 +264,22 @@ function KaitaiStream:read_bytes(n)
 end
 
 function KaitaiStream:_read_bytes_not_aligned(n)
+    local pos_before_read = nil
+    local can_seek = pcall(function()
+        pos_before_read = self._io:seek()
+    end)
+
     local r = self._io:read(n)
     if r == nil then
         r = ""
     end
 
     if #r < n then
+        if can_seek then
+            pcall(function()
+                self._io:seek("set", pos_before_read)
+            end)
+        end
         error("requested " .. n .. " bytes, but only " .. #r .. " bytes available")
     end
 

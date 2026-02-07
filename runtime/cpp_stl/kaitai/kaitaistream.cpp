@@ -61,6 +61,31 @@
 #include <string> // std::string, std::getline
 #include <vector> // std::vector
 
+namespace {
+
+void rewind_on_failed_read(std::istream* io, std::istream::pos_type pos_before_read) {
+    if (pos_before_read == std::istream::pos_type(-1)) {
+        return;
+    }
+
+    std::ios::iostate old_state = io->rdstate();
+    io->clear();
+    io->seekg(pos_before_read);
+    io->clear(old_state);
+}
+
+void read_exact(std::istream* io, char* buf, std::streamsize len) {
+    std::istream::pos_type pos_before_read = io->tellg();
+    try {
+        io->read(buf, len);
+    } catch (std::ios_base::failure&) {
+        rewind_on_failed_read(io, pos_before_read);
+        throw;
+    }
+}
+
+}
+
 #ifdef KAITAI_STREAM_H_CPP11_SUPPORT
 #include <type_traits> // std::enable_if, std::is_trivial
 
@@ -194,7 +219,7 @@ uint64_t kaitai::kstream::size() {
 int8_t kaitai::kstream::read_s1() {
     align_to_byte();
     char t;
-    m_io->get(t);
+    read_exact(m_io, &t, 1);
     return t;
 }
 
@@ -205,7 +230,7 @@ int8_t kaitai::kstream::read_s1() {
 int16_t kaitai::kstream::read_s2be() {
     align_to_byte();
     int16_t t;
-    m_io->read(reinterpret_cast<char *>(&t), 2);
+    read_exact(m_io, reinterpret_cast<char *>(&t), 2);
 #if __BYTE_ORDER == __LITTLE_ENDIAN
     t = bswap_16(t);
 #endif
@@ -215,7 +240,7 @@ int16_t kaitai::kstream::read_s2be() {
 int32_t kaitai::kstream::read_s4be() {
     align_to_byte();
     int32_t t;
-    m_io->read(reinterpret_cast<char *>(&t), 4);
+    read_exact(m_io, reinterpret_cast<char *>(&t), 4);
 #if __BYTE_ORDER == __LITTLE_ENDIAN
     t = bswap_32(t);
 #endif
@@ -225,7 +250,7 @@ int32_t kaitai::kstream::read_s4be() {
 int64_t kaitai::kstream::read_s8be() {
     align_to_byte();
     int64_t t;
-    m_io->read(reinterpret_cast<char *>(&t), 8);
+    read_exact(m_io, reinterpret_cast<char *>(&t), 8);
 #if __BYTE_ORDER == __LITTLE_ENDIAN
     t = bswap_64(t);
 #endif
@@ -239,7 +264,7 @@ int64_t kaitai::kstream::read_s8be() {
 int16_t kaitai::kstream::read_s2le() {
     align_to_byte();
     int16_t t;
-    m_io->read(reinterpret_cast<char *>(&t), 2);
+    read_exact(m_io, reinterpret_cast<char *>(&t), 2);
 #if __BYTE_ORDER == __BIG_ENDIAN
     t = bswap_16(t);
 #endif
@@ -249,7 +274,7 @@ int16_t kaitai::kstream::read_s2le() {
 int32_t kaitai::kstream::read_s4le() {
     align_to_byte();
     int32_t t;
-    m_io->read(reinterpret_cast<char *>(&t), 4);
+    read_exact(m_io, reinterpret_cast<char *>(&t), 4);
 #if __BYTE_ORDER == __BIG_ENDIAN
     t = bswap_32(t);
 #endif
@@ -259,7 +284,7 @@ int32_t kaitai::kstream::read_s4le() {
 int64_t kaitai::kstream::read_s8le() {
     align_to_byte();
     int64_t t;
-    m_io->read(reinterpret_cast<char *>(&t), 8);
+    read_exact(m_io, reinterpret_cast<char *>(&t), 8);
 #if __BYTE_ORDER == __BIG_ENDIAN
     t = bswap_64(t);
 #endif
@@ -273,7 +298,7 @@ int64_t kaitai::kstream::read_s8le() {
 uint8_t kaitai::kstream::read_u1() {
     align_to_byte();
     char t;
-    m_io->get(t);
+    read_exact(m_io, &t, 1);
     return t;
 }
 
@@ -284,7 +309,7 @@ uint8_t kaitai::kstream::read_u1() {
 uint16_t kaitai::kstream::read_u2be() {
     align_to_byte();
     uint16_t t;
-    m_io->read(reinterpret_cast<char *>(&t), 2);
+    read_exact(m_io, reinterpret_cast<char *>(&t), 2);
 #if __BYTE_ORDER == __LITTLE_ENDIAN
     t = bswap_16(t);
 #endif
@@ -294,7 +319,7 @@ uint16_t kaitai::kstream::read_u2be() {
 uint32_t kaitai::kstream::read_u4be() {
     align_to_byte();
     uint32_t t;
-    m_io->read(reinterpret_cast<char *>(&t), 4);
+    read_exact(m_io, reinterpret_cast<char *>(&t), 4);
 #if __BYTE_ORDER == __LITTLE_ENDIAN
     t = bswap_32(t);
 #endif
@@ -304,7 +329,7 @@ uint32_t kaitai::kstream::read_u4be() {
 uint64_t kaitai::kstream::read_u8be() {
     align_to_byte();
     uint64_t t;
-    m_io->read(reinterpret_cast<char *>(&t), 8);
+    read_exact(m_io, reinterpret_cast<char *>(&t), 8);
 #if __BYTE_ORDER == __LITTLE_ENDIAN
     t = bswap_64(t);
 #endif
@@ -318,7 +343,7 @@ uint64_t kaitai::kstream::read_u8be() {
 uint16_t kaitai::kstream::read_u2le() {
     align_to_byte();
     uint16_t t;
-    m_io->read(reinterpret_cast<char *>(&t), 2);
+    read_exact(m_io, reinterpret_cast<char *>(&t), 2);
 #if __BYTE_ORDER == __BIG_ENDIAN
     t = bswap_16(t);
 #endif
@@ -328,7 +353,7 @@ uint16_t kaitai::kstream::read_u2le() {
 uint32_t kaitai::kstream::read_u4le() {
     align_to_byte();
     uint32_t t;
-    m_io->read(reinterpret_cast<char *>(&t), 4);
+    read_exact(m_io, reinterpret_cast<char *>(&t), 4);
 #if __BYTE_ORDER == __BIG_ENDIAN
     t = bswap_32(t);
 #endif
@@ -338,7 +363,7 @@ uint32_t kaitai::kstream::read_u4le() {
 uint64_t kaitai::kstream::read_u8le() {
     align_to_byte();
     uint64_t t;
-    m_io->read(reinterpret_cast<char *>(&t), 8);
+    read_exact(m_io, reinterpret_cast<char *>(&t), 8);
 #if __BYTE_ORDER == __BIG_ENDIAN
     t = bswap_64(t);
 #endif
@@ -356,7 +381,7 @@ uint64_t kaitai::kstream::read_u8le() {
 float kaitai::kstream::read_f4be() {
     align_to_byte();
     uint32_t t;
-    m_io->read(reinterpret_cast<char *>(&t), 4);
+    read_exact(m_io, reinterpret_cast<char *>(&t), 4);
 #if __BYTE_ORDER == __LITTLE_ENDIAN
     t = bswap_32(t);
 #endif
@@ -366,7 +391,7 @@ float kaitai::kstream::read_f4be() {
 double kaitai::kstream::read_f8be() {
     align_to_byte();
     uint64_t t;
-    m_io->read(reinterpret_cast<char *>(&t), 8);
+    read_exact(m_io, reinterpret_cast<char *>(&t), 8);
 #if __BYTE_ORDER == __LITTLE_ENDIAN
     t = bswap_64(t);
 #endif
@@ -380,7 +405,7 @@ double kaitai::kstream::read_f8be() {
 float kaitai::kstream::read_f4le() {
     align_to_byte();
     uint32_t t;
-    m_io->read(reinterpret_cast<char *>(&t), 4);
+    read_exact(m_io, reinterpret_cast<char *>(&t), 4);
 #if __BYTE_ORDER == __BIG_ENDIAN
     t = bswap_32(t);
 #endif
@@ -390,7 +415,7 @@ float kaitai::kstream::read_f4le() {
 double kaitai::kstream::read_f8le() {
     align_to_byte();
     uint64_t t;
-    m_io->read(reinterpret_cast<char *>(&t), 8);
+    read_exact(m_io, reinterpret_cast<char *>(&t), 8);
 #if __BYTE_ORDER == __BIG_ENDIAN
     t = bswap_64(t);
 #endif
@@ -420,7 +445,7 @@ uint64_t kaitai::kstream::read_bits_int_be(int n) {
         if (bytes_needed > 8)
             throw std::runtime_error("read_bits_int_be: more than 8 bytes requested");
         uint8_t buf[8];
-        m_io->read(reinterpret_cast<char *>(buf), bytes_needed);
+        read_exact(m_io, reinterpret_cast<char *>(buf), bytes_needed);
         for (int i = 0; i < bytes_needed; i++) {
             res = res << 8 | buf[i];
         }
@@ -455,7 +480,7 @@ uint64_t kaitai::kstream::read_bits_int_le(int n) {
         if (bytes_needed > 8)
             throw std::runtime_error("read_bits_int_le: more than 8 bytes requested");
         uint8_t buf[8];
-        m_io->read(reinterpret_cast<char *>(buf), bytes_needed);
+        read_exact(m_io, reinterpret_cast<char *>(buf), bytes_needed);
         for (int i = 0; i < bytes_needed; i++) {
             res |= static_cast<uint64_t>(buf[i]) << (i * 8);
         }
@@ -498,7 +523,7 @@ std::string kaitai::kstream::read_bytes(std::streamsize len) {
     }
 
     if (len > 0) {
-        m_io->read(&result[0], len);
+        read_exact(m_io, &result[0], len);
     }
 
     return std::string(result.begin(), result.end());
