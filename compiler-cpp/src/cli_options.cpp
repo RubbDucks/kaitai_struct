@@ -12,9 +12,8 @@ constexpr std::string_view kName = "kaitai-struct-compiler";
 
 const std::vector<std::string>& ValidTargets() {
   static const std::vector<std::string> targets = {
-      "all", "cpp_stl", "csharp", "go", "graphviz", "html", "java",
-      "javascript", "lua", "nim", "perl", "php", "python", "ruby",
-      "rust", "wireshark_lua"};
+      "all", "cpp_stl", "csharp", "go",  "graphviz", "html", "java", "javascript",
+      "lua", "nim",     "perl",   "php", "python",   "ruby", "rust", "wireshark_lua"};
   return targets;
 }
 
@@ -28,20 +27,40 @@ bool IsValidCppStandard(const std::string& standard) {
 }
 
 bool IsKnownOption(const std::string& arg) {
-  static const std::vector<std::string> options = {
-      "-t", "--target", "-w", "--read-write", "-d", "--outdir", "-I",
-      "--import-path", "--cpp-namespace", "--cpp-standard", "--go-package",
-      "--java-package", "--java-from-file-class", "--dotnet-namespace",
-      "--php-namespace", "--python-package", "--nim-module", "--nim-opaque",
-      "--opaque-types", "--zero-copy-substream", "--ksc-exceptions",
-      "--ksc-json-output", "--verbose", "--no-auto-read", "--read-pos",
-      "--debug", "--help", "-h", "--version"};
+  static const std::vector<std::string> options = {"-t",
+                                                   "--target",
+                                                   "-w",
+                                                   "--read-write",
+                                                   "-d",
+                                                   "--outdir",
+                                                   "-I",
+                                                   "--import-path",
+                                                   "--cpp-namespace",
+                                                   "--cpp-standard",
+                                                   "--go-package",
+                                                   "--java-package",
+                                                   "--java-from-file-class",
+                                                   "--dotnet-namespace",
+                                                   "--php-namespace",
+                                                   "--python-package",
+                                                   "--nim-module",
+                                                   "--nim-opaque",
+                                                   "--opaque-types",
+                                                   "--zero-copy-substream",
+                                                   "--ksc-exceptions",
+                                                   "--ksc-json-output",
+                                                   "--verbose",
+                                                   "--no-auto-read",
+                                                   "--read-pos",
+                                                   "--debug",
+                                                   "--from-ir",
+                                                   "--help",
+                                                   "-h",
+                                                   "--version"};
   return std::find(options.begin(), options.end(), arg) != options.end();
 }
 
-bool IsBoolValue(const std::string& value) {
-  return value == "true" || value == "false";
-}
+bool IsBoolValue(const std::string& value) { return value == "true" || value == "false"; }
 
 std::string Join(const std::vector<std::string>& values, const std::string& sep) {
   std::ostringstream out;
@@ -54,14 +73,16 @@ std::string Join(const std::vector<std::string>& values, const std::string& sep)
   return out.str();
 }
 
-}  // namespace
+} // namespace
 
 std::string HelpText() {
   std::ostringstream out;
   out << kName << " " << kVersion << "\n"
       << "Usage: kaitai-struct-compiler [options] <file>...\n\n"
       << "Options:\n"
-      << "  -t, --target <language>           target languages (all, cpp_stl, csharp, go, graphviz, html, java, javascript, lua, nim, perl, php, python, ruby, rust, wireshark_lua)\n"
+      << "  -t, --target <language>           target languages (all, cpp_stl, csharp, go, "
+         "graphviz, html, java, javascript, lua, nim, perl, php, python, ruby, rust, "
+         "wireshark_lua)\n"
       << "  -w, --read-write                  generate read-write support in classes\n"
       << "  -d, --outdir <directory>          output directory\n"
       << "  -I, --import-path <paths>         .ksy import paths (colon/semicolon-separated)\n"
@@ -83,6 +104,7 @@ std::string HelpText() {
       << "      --no-auto-read                disable auto-running _read in constructor\n"
       << "      --read-pos                    _read remembers attribute positions in stream\n"
       << "      --debug                       same as --no-auto-read --read-pos\n"
+      << "      --from-ir <path>              load and validate migration IR sidecar\n"
       << "  -h, --help                        display this help and exit\n"
       << "      --version                     output version information and exit\n";
   return out.str();
@@ -197,8 +219,8 @@ ParseResult ParseCommandLine(int argc, char** argv) {
       std::string standard(value);
       if (!IsValidCppStandard(standard)) {
         result.status = ParseStatus::kError;
-        result.message = "'" + standard +
-                         "' is not a valid C++ standard to target; valid ones are: 98, 11, 17";
+        result.message =
+            "'" + standard + "' is not a valid C++ standard to target; valid ones are: 98, 11, 17";
         return result;
       }
       result.options.runtime.cpp_standard = standard;
@@ -207,49 +229,57 @@ ParseResult ParseCommandLine(int argc, char** argv) {
 
     if (arg == "--go-package") {
       const char* value = require_value(arg);
-      if (!value) return result;
+      if (!value)
+        return result;
       result.options.runtime.go_package = value;
       continue;
     }
     if (arg == "--java-package") {
       const char* value = require_value(arg);
-      if (!value) return result;
+      if (!value)
+        return result;
       result.options.runtime.java_package = value;
       continue;
     }
     if (arg == "--java-from-file-class") {
       const char* value = require_value(arg);
-      if (!value) return result;
+      if (!value)
+        return result;
       result.options.runtime.java_from_file_class = value;
       continue;
     }
     if (arg == "--dotnet-namespace") {
       const char* value = require_value(arg);
-      if (!value) return result;
+      if (!value)
+        return result;
       result.options.runtime.dotnet_namespace = value;
       continue;
     }
     if (arg == "--php-namespace") {
       const char* value = require_value(arg);
-      if (!value) return result;
+      if (!value)
+        return result;
       result.options.runtime.php_namespace = value;
       continue;
     }
     if (arg == "--python-package") {
       const char* value = require_value(arg);
-      if (!value) return result;
+      if (!value)
+        return result;
       result.options.runtime.python_package = value;
       continue;
     }
     if (arg == "--nim-module") {
       const char* value = require_value(arg);
-      if (!value) return result;
+      if (!value)
+        return result;
       result.options.runtime.nim_module = value;
       continue;
     }
     if (arg == "--nim-opaque") {
       const char* value = require_value(arg);
-      if (!value) return result;
+      if (!value)
+        return result;
       result.options.runtime.nim_opaque = value;
       continue;
     }
@@ -284,7 +314,8 @@ ParseResult ParseCommandLine(int argc, char** argv) {
     }
     if (arg == "--verbose") {
       const char* value = require_value(arg);
-      if (!value) return result;
+      if (!value)
+        return result;
       result.options.verbose.push_back(value);
       continue;
     }
@@ -299,6 +330,14 @@ ParseResult ParseCommandLine(int argc, char** argv) {
     if (arg == "--debug") {
       result.options.runtime.auto_read = false;
       result.options.runtime.read_pos = true;
+      continue;
+    }
+
+    if (arg == "--from-ir") {
+      const char* value = require_value(arg);
+      if (!value)
+        return result;
+      result.options.from_ir = value;
       continue;
     }
 
@@ -317,13 +356,19 @@ ParseResult ParseCommandLine(int argc, char** argv) {
     result.options.runtime.zero_copy_substream = false;
   }
 
-  if (result.options.targets.empty()) {
+  if (result.options.from_ir.empty() && result.options.targets.empty()) {
     result.status = ParseStatus::kError;
     result.message = "Missing required option --target";
+    return result;
+  }
+
+  if (!result.options.from_ir.empty() && !result.options.src_files.empty()) {
+    result.status = ParseStatus::kError;
+    result.message = "--from-ir mode does not accept .ksy input files";
     return result;
   }
 
   return result;
 }
 
-}  // namespace kscpp
+} // namespace kscpp

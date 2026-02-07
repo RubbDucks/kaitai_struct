@@ -1,0 +1,9 @@
+KSIR1
+name "bad_ref"
+default_endian be
+types 0
+attrs 1
+attr "data" user "missing_t" none "none"
+instances 0
+validations 0
+end

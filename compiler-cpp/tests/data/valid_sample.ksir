@@ -1,0 +1,11 @@
+KSIR1
+name "ir_sample"
+default_endian le
+types 0
+attrs 2
+attr "len" primitive "u2" le "none"
+attr "data" primitive "bytes" none "(bin \"+\" (name \"len\") (int 1))"
+instances 1
+instance "tail_len" "(bin \"-\" (name \"len\") (int 1))"
+validations 0
+end

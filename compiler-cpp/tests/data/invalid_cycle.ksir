@@ -1,0 +1,10 @@
+KSIR1
+name "bad_cycle"
+default_endian le
+types 2
+type "a_t" user "b_t"
+type "b_t" user "a_t"
+attrs 0
+instances 0
+validations 0
+end
