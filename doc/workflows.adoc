@@ -1,0 +1,116 @@
+= Contributor & release workflows
+Kaitai Project
+:toc: left
+
+This page is the single source of truth for day-to-day contributor and
+release workflows in this repository.
+
+If another document disagrees with this page, treat this page as canonical
+and consider older instructions historical.
+
+== Repository model (canonical)
+
+* Work in this single repository (`kaitai_struct`).
+* There are no git submodules in the current tree.
+* Core paths used by the documented scripts:
+** `compiler/` for the compiler build
+** `tests/` for format generation and language test runners
+** `runtime/` for runtime libraries used by language tests
+
+== Supported language test targets in this repository fork
+
+The actively maintained targets in this fork are:
+
+* `cpp_stl` (tested via `run-cpp_stl_17`)
+* `lua`
+* `wireshark_lua`
+* `python`
+* `ruby`
+
+== Happy-path setup for new contributors
+
+Run commands from repository root unless noted otherwise.
+
+=== 1) Build compiler stage artifacts
+
+[source,shell]
+----
+cd tests
+./build-compiler
+----
+
+=== 2) Generate test formats
+
+Generate only what you need for fast local iteration:
+
+[source,shell]
+----
+cd tests
+./build-formats python
+./build-formats lua
+----
+
+For C++17 tests, generate into the required dedicated output directory:
+
+[source,shell]
+----
+cd tests
+../compiler/jvm/target/universal/stage/bin/kaitai-struct-compiler -- \
+  --verbose file -t cpp_stl --cpp-standard 17 \
+  -d compiled/cpp_stl_17 \
+  --import-path ../formats \
+  --import-path formats/ks_path \
+  formats/*.ksy
+----
+
+=== 3) Run required regression suites
+
+[source,shell]
+----
+cd tests
+./run-cpp_stl_17
+./run-lua
+./run-python
+----
+
+Notes:
+
+* `run-lua` expects generated modules in `tests/compiled/lua`.
+* `run-python` expects both `tests/compiled/python/testformats` and
+  `tests/compiled/python/testwrite` (produced by `build-formats python`).
+
+== Command validity and troubleshooting
+
+* Use `tests/build-formats <target>` where `<target>` is a compiler target
+  like `python`, `lua`, or `cpp_stl`.
+* `cpp_stl_17` is not a `build-formats` target. Use the explicit
+  `kaitai-struct-compiler --cpp-standard 17` command shown above.
+* If package installs fail because Ubuntu mirrors changed, run:
++
+[source,shell]
+----
+sudo apt-get update
+----
+
+== Release workflow (current)
+
+Release automation is driven by GitHub Actions in `.github/workflows/main.yml`.
+The practical maintainer workflow is:
+
+. Ensure local tests pass (`run-cpp_stl_17`, `run-lua`, `run-python`).
+. Merge to `master`.
+. Monitor CI workflow and artifacts (compiler packages, generated targets,
+  npm publish attempt).
+. Trigger downstream release/publish steps for language runtimes in their
+  runtime-specific repositories as needed.
+
+== Historical guidance
+
+Some older docs still mention:
+
+* cloning with `--recursive` and running `git submodule update`
+* Bintray upload/release procedures
+* external split-repository assumptions for daily contributor workflows
+
+Treat those as historical unless explicitly marked as current for archival
+reasons.
