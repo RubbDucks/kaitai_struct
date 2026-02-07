@@ -7,6 +7,7 @@ import io.kaitai.struct.CompileLog._
 import io.kaitai.struct.JavaMain.CLIConfig
 import io.kaitai.struct.format.{ClassSpec, ClassSpecs, KSVersion}
 import io.kaitai.struct.formats.JavaKSYParser
+import io.kaitai.struct.ir.MigrationIr
 import io.kaitai.struct.languages.CppCompiler
 import io.kaitai.struct.languages.components.LanguageCompilerStatic
 import io.kaitai.struct.problems.{CompilationProblem, CompilationProblemException, ErrorInInput}
@@ -22,6 +23,7 @@ object JavaMain {
     throwExceptions: Boolean = false,
     jsonOutput: Boolean = false,
     importPaths: Seq[String] = Seq(),
+    emitIr: Option[File] = None,
     runtime: RuntimeConfig = RuntimeConfig()
   )
 
@@ -69,6 +71,10 @@ object JavaMain {
       opt[String]('I', "import-path").optional().unbounded().valueName(importPathExample).action { (x, c) =>
         c.copy(importPaths = c.importPaths ++ x.split(File.pathSeparatorChar))
       } text(".ksy library search path(s) for imports (see also KSPATH env variable)")
+
+      opt[File]("emit-ir").valueName("<path>").action { (x, c) =>
+        c.copy(emitIr = Some(x))
+      } text("emit migration IR sidecar (opt-in, experimental; file path for single input, directory for multiple inputs)")
 
       opt[String]("cpp-namespace") valueName("<namespace>") action { (x, c) =>
         c.copy(
@@ -343,6 +349,7 @@ class JavaMain(config: CLIConfig) {
 
     specsOpt match {
       case Some(specs) =>
+        writeIrSidecar(specs)
         val output: Map[String, Map[String, SpecEntry]] = config.targets match {
           case Seq(lang) =>
             // single target, just use target directory as is
@@ -359,6 +366,29 @@ class JavaMain(config: CLIConfig) {
         )
       case None =>
         InputFailure(precompileProblems)
+    }
+  }
+
+  private def writeIrSidecar(specs: ClassSpecs): Unit = {
+    config.emitIr.foreach { emitPath =>
+      val outPath = if (config.srcFiles.size == 1 && !emitPath.isDirectory) {
+        emitPath
+      } else {
+        emitPath.mkdirs()
+        new File(emitPath, s"${specs.firstSpec.nameAsStr}.ksir")
+      }
+
+      val parentPath = outPath.getParentFile
+      if (parentPath != null) {
+        parentPath.mkdirs()
+      }
+
+      val osw = new OutputStreamWriter(new FileOutputStream(outPath), StandardCharsets.UTF_8)
+      try {
+        osw.write(MigrationIr.serialize(specs.firstSpec))
+      } finally {
+        osw.close()
+      }
     }
   }
 

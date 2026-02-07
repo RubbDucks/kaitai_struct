@@ -100,6 +100,21 @@ This format is intentionally simple for migration bring-up and testability; late
 - `Spec.validations` ↔ KS `valid/*` checks
 - `TypeRef.user` ↔ user-defined / imported type references
 
+
+## Scala sidecar export (opt-in)
+
+The Scala compiler can export this IR as a sidecar artifact using:
+
+```sh
+kaitai-struct-compiler -t <lang> --emit-ir <path> <file>.ksy
+```
+
+Behavior:
+
+- `--emit-ir` is **opt-in** and does not change normal codegen outputs.
+- For single input, `<path>` may be a file path (for example `out/spec.ksir`).
+- For multiple inputs, `<path>` is treated as a directory and one `<spec>.ksir` is emitted per input.
+
 ## TODO
 
 - Expand expression coverage (`if`, casts, enum refs, IO helpers) to match Scala semantics.
