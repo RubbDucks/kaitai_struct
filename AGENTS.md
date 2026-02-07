@@ -208,6 +208,8 @@ When editing `.ksy` specs or generator logic, keep these core concepts in mind:
 - When debugging Python test regressions, remember the known pitfalls:
   - missing `PY2` compatibility export in `runtime/python/kaitaistruct.py`
   - failed short reads on seekable streams must rewind before raising EOF
+- `tests/build-formats` does not accept `cpp_stl_17` as a target; generate C++17 artifacts with `tests/../compiler/jvm/target/universal/stage/bin/kaitai-struct-compiler -- --verbose file -t cpp_stl --cpp-standard 17 -d tests/compiled/cpp_stl_17 ...` before `tests/run-cpp_stl_17`.
+
 
 ## Maintenance reminder for future agents
 
