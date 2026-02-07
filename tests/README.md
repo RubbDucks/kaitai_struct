@@ -51,20 +51,22 @@ There are a few scripts that automate steps specified above:
   logs all output into designated log file instead (mostly useful for
   aggregation within a CI system afterwards).
 
-Obviously, these scripts require Kaitai Struct compiler and
-language-specific runtime modules. They are normally located in
-distinct repositories - there is a file named `/config` that specifies
-their default locations. If you've used [main Kaitai Struct project](https://github.com/kaitai-io/kaitai_struct)
-to check out all linked repositories as submodules in their default
-locations, you don't need to adjust anything. If you have these
-dependencies in some other places, just edit the `/config`.
+These scripts require Kaitai Struct compiler and language-specific
+runtime modules. In this repository, default locations are configured in
+`tests/config` (for example `../compiler`, `../runtime/python`, and
+`../runtime/lua`).
+
+This repository currently has no git submodules. If your local checkout
+uses non-default locations, edit `tests/config`.
+
+For the canonical contributor happy-path and release workflow, see
+`doc/workflows.adoc`.
 
 ## Continuous integration
 
 [Main Kaitai Struct project](https://github.com/kaitai-io/kaitai_struct)
-includes a [Travis CI](https://travis-ci.org/kaitai-io/kaitai_struct/)
-configuration. This mean that every commit to main project repository
-gets automatically built and tested throughly. The results are
+uses CI workflows (currently GitHub Actions and related integrations) to
+build compiler artifacts and execute language checks. The results are
 published at [Kaitai Struct CI results page](https://ci.kaitai.io).
 
 Please refer to [CI documentation](https://doc.kaitai.io/ci.html) for

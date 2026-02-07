@@ -38,6 +38,7 @@
 
 * link://ci.kaitai.io/[CI (Continuous Integration) dashboard]
 * <<developers.adoc#,Developers memo>> — basic information on how to build, test and release KS
+* <<workflows.adoc#,Contributor & release workflows (single source of truth)>> — canonical happy-path commands for this repository
 * <<developers_intro.adoc#,Developers intro>> — gentle introduction to KS reference compiler architecture
 * <<new_language.adoc#,Adding support for new target language>>
 * <<kst.adoc#,KST>> — a way to write specs for testing in cross-language manner
