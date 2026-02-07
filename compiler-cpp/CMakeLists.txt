@@ -25,7 +25,7 @@ target_compile_features(kscpp_cli PUBLIC cxx_std_17)
 add_executable(kscpp
   src/main.cpp
 )
-target_link_libraries(kscpp PRIVATE kscpp_cli)
+target_link_libraries(kscpp PRIVATE kscpp_cli kscpp_ir)
 target_compile_features(kscpp PRIVATE cxx_std_17)
 
 enable_testing()
@@ -51,4 +51,26 @@ set_tests_properties(kscpp_version_experimental PROPERTIES
 add_test(NAME kscpp_help COMMAND kscpp --help)
 set_tests_properties(kscpp_help PROPERTIES
   PASS_REGULAR_EXPRESSION "Usage: kaitai-struct-compiler"
+)
+
+
+add_test(NAME kscpp_from_ir_valid_sample
+  COMMAND kscpp --from-ir ${CMAKE_CURRENT_SOURCE_DIR}/tests/data/valid_sample.ksir
+)
+set_tests_properties(kscpp_from_ir_valid_sample PROPERTIES
+  PASS_REGULAR_EXPRESSION "IR validation succeeded"
+)
+
+add_test(NAME kscpp_from_ir_invalid_unknown_type
+  COMMAND kscpp --from-ir ${CMAKE_CURRENT_SOURCE_DIR}/tests/data/invalid_unknown_type.ksir
+)
+set_tests_properties(kscpp_from_ir_invalid_unknown_type PROPERTIES
+  WILL_FAIL TRUE
+)
+
+add_test(NAME kscpp_from_ir_invalid_cycle
+  COMMAND kscpp --from-ir ${CMAKE_CURRENT_SOURCE_DIR}/tests/data/invalid_cycle.ksir
+)
+set_tests_properties(kscpp_from_ir_invalid_cycle PROPERTIES
+  WILL_FAIL TRUE
 )

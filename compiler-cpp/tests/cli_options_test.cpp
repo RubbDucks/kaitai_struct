@@ -23,7 +23,7 @@ kscpp::ParseResult Parse(const std::vector<std::string>& args) {
   return kscpp::ParseCommandLine(static_cast<int>(argv.size()), argv.data());
 }
 
-}  // namespace
+} // namespace
 
 int main() {
   bool ok = true;
@@ -32,16 +32,19 @@ int main() {
     auto r = Parse({"kscpp", "--help"});
     ok &= Check(r.status == kscpp::ParseStatus::kHelp, "help status");
     ok &= Check(r.message.find("Usage:") != std::string::npos, "help text includes usage");
+    ok &= Check(r.message.find("--from-ir") != std::string::npos, "help text includes from-ir");
   }
 
   {
     auto r = Parse({"kscpp", "--version"});
     ok &= Check(r.status == kscpp::ParseStatus::kVersion, "version status");
-    ok &= Check(r.message.find("experimental") != std::string::npos, "version text includes experimental");
+    ok &= Check(r.message.find("experimental") != std::string::npos,
+                "version text includes experimental");
   }
 
   {
-    auto r = Parse({"kscpp", "-t", "python", "--read-write", "--debug", "--cpp-standard", "17", "--import-path", "a:b", "in.ksy"});
+    auto r = Parse({"kscpp", "-t", "python", "--read-write", "--debug", "--cpp-standard", "17",
+                    "--import-path", "a:b", "in.ksy"});
     ok &= Check(r.status == kscpp::ParseStatus::kOk, "valid parse status");
     ok &= Check(r.options.targets.size() == 1 && r.options.targets[0] == "python", "target parsed");
     ok &= Check(!r.options.runtime.auto_read, "auto_read disabled by debug/read-write");
@@ -49,7 +52,20 @@ int main() {
     ok &= Check(!r.options.runtime.zero_copy_substream, "read-write disables zero-copy substream");
     ok &= Check(r.options.runtime.cpp_standard == "17", "cpp-standard parsed");
     ok &= Check(r.options.import_paths.size() == 2, "import-path split");
-    ok &= Check(r.options.src_files.size() == 1 && r.options.src_files[0] == "in.ksy", "input file parsed");
+    ok &= Check(r.options.src_files.size() == 1 && r.options.src_files[0] == "in.ksy",
+                "input file parsed");
+  }
+
+  {
+    auto r = Parse({"kscpp", "--from-ir", "sample.ksir"});
+    ok &= Check(r.status == kscpp::ParseStatus::kOk, "from-ir parse status");
+    ok &= Check(r.options.from_ir == "sample.ksir", "from-ir path parsed");
+    ok &= Check(r.options.targets.empty(), "from-ir mode allows omitted target");
+  }
+
+  {
+    auto r = Parse({"kscpp", "--from-ir", "sample.ksir", "input.ksy"});
+    ok &= Check(r.status == kscpp::ParseStatus::kError, "from-ir rejects source files");
   }
 
   {

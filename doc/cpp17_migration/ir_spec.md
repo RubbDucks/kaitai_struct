@@ -86,6 +86,8 @@ This format is intentionally simple for migration bring-up and testability; late
 
 - `spec.name` is required.
 - user `TypeRef` requires non-empty user type name.
+- user `TypeRef` must resolve to a declared type name (or the top-level spec name).
+- type aliases in `types` must not form reference cycles.
 - `attr.id` is required.
 - `instance.id` is required.
 - `validation.target` is required.

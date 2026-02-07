@@ -30,6 +30,7 @@ Current CLI migration status:
 - argument parsing mirrors the Scala CLI surface for key options
 - `--help` and `--version` return success
 - successful parse of compile-mode arguments currently returns a `Not implemented` execution path
+- `--from-ir <file>` validates Scala-exported `KSIR1` payloads and exits successfully on valid IR
 
 ## Run C++ skeleton checks
 
@@ -44,3 +45,14 @@ This verifies parser unit coverage, `--help` / `--version`, and parse error exit
 - No Scala compiler wiring is changed.
 - No default compiler selection behavior is changed.
 - This build is standalone and must be invoked explicitly.
+
+## Validate migration IR
+
+```sh
+./compiler-cpp/build/kscpp --from-ir compiler-cpp/tests/data/valid_sample.ksir
+```
+
+Expected behavior in this phase:
+
+- valid IR: prints `IR validation succeeded: <spec>` and exits with status `0`
+- invalid IR: prints `Error: IR validation failed: ...` and exits with non-zero status

@@ -30,6 +30,7 @@ struct CliOptions {
   std::vector<std::string> src_files;
   std::string out_dir = ".";
   std::vector<std::string> targets;
+  std::string from_ir;
   bool throw_exceptions = false;
   bool json_output = false;
   std::vector<std::string> import_paths;
@@ -53,6 +54,6 @@ ParseResult ParseCommandLine(int argc, char** argv);
 std::string HelpText();
 std::string VersionText();
 
-}  // namespace kscpp
+} // namespace kscpp
 
 #endif

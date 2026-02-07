@@ -102,7 +102,8 @@ struct ValidationResult {
 ValidationResult Validate(const Spec& spec);
 std::string Serialize(const Spec& spec);
 ValidationResult Deserialize(const std::string& encoded, Spec* out);
+ValidationResult LoadFromFile(const std::string& path, Spec* out);
 
-}  // namespace kscpp::ir
+} // namespace kscpp::ir
 
 #endif

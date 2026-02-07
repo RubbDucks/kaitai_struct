@@ -13,7 +13,7 @@ bool Check(bool condition, const std::string& message) {
   return true;
 }
 
-}  // namespace
+} // namespace
 
 int main() {
   bool ok = true;
@@ -33,7 +33,8 @@ int main() {
     attr.id = "payload";
     attr.type.kind = kscpp::ir::TypeRef::Kind::kPrimitive;
     attr.type.primitive = kscpp::ir::PrimitiveType::kBytes;
-    attr.size_expr = kscpp::ir::Expr::Binary("+", kscpp::ir::Expr::Name("len"), kscpp::ir::Expr::Int(4));
+    attr.size_expr =
+        kscpp::ir::Expr::Binary("+", kscpp::ir::Expr::Name("len"), kscpp::ir::Expr::Int(4));
     spec.attrs.push_back(attr);
 
     kscpp::ir::Instance inst;
@@ -43,7 +44,8 @@ int main() {
 
     kscpp::ir::Validation validation;
     validation.target = "len";
-    validation.condition_expr = kscpp::ir::Expr::Binary(">=", kscpp::ir::Expr::Name("len"), kscpp::ir::Expr::Int(0));
+    validation.condition_expr =
+        kscpp::ir::Expr::Binary(">=", kscpp::ir::Expr::Name("len"), kscpp::ir::Expr::Int(0));
     validation.message = "len must be non-negative";
     spec.validations.push_back(validation);
 
@@ -70,12 +72,37 @@ int main() {
     kscpp::ir::Spec invalid;
     invalid.name = "x";
     invalid.default_endian = kscpp::ir::Endian::kLe;
-    kscpp::ir::Attr attr;
-    attr.id = "a";
-    attr.type.kind = kscpp::ir::TypeRef::Kind::kUser;
-    invalid.attrs.push_back(attr);
+    kscpp::ir::TypeDef alias;
+    alias.name = "len_t";
+    alias.type.kind = kscpp::ir::TypeRef::Kind::kUser;
+    alias.type.user_type = "missing_t";
+    invalid.types.push_back(alias);
     auto r = kscpp::ir::Validate(invalid);
-    ok &= Check(!r.ok, "user type without name rejected");
+    ok &= Check(!r.ok, "unknown type reference rejected");
+    ok &= Check(r.error.find("unknown user type") != std::string::npos,
+                "unknown type diagnostic is clear");
+  }
+
+  {
+    kscpp::ir::Spec invalid;
+    invalid.name = "x";
+    invalid.default_endian = kscpp::ir::Endian::kLe;
+
+    kscpp::ir::TypeDef a;
+    a.name = "a_t";
+    a.type.kind = kscpp::ir::TypeRef::Kind::kUser;
+    a.type.user_type = "b_t";
+    invalid.types.push_back(a);
+
+    kscpp::ir::TypeDef b;
+    b.name = "b_t";
+    b.type.kind = kscpp::ir::TypeRef::Kind::kUser;
+    b.type.user_type = "a_t";
+    invalid.types.push_back(b);
+
+    auto r = kscpp::ir::Validate(invalid);
+    ok &= Check(!r.ok, "type alias cycle rejected");
+    ok &= Check(r.error.find("cycle") != std::string::npos, "cycle diagnostic is clear");
   }
 
   return ok ? 0 : 1;
