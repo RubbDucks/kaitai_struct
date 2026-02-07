@@ -1,0 +1,107 @@
+# C++17 Migration IR Specification (v1)
+
+This document defines the first shared migration IR boundary between the existing Scala compiler path and the experimental C++17 path.
+
+## Status and scope
+
+- **Status:** experimental migration contract
+- **Version marker:** `KSIR1`
+- **Default authority:** Scala remains the production compiler path; this IR is an opt-in migration artifact.
+- **Out of scope in this commit:** backend code generation in C++.
+
+## Design goals
+
+1. Capture the core Kaitai Struct concepts needed to bridge frontend semantics to future backends.
+2. Keep the schema narrow and testable in early migration commits.
+3. Make invariants explicit so malformed IR fails fast.
+
+## Schema overview
+
+A `Spec` object contains:
+
+- `name` (**required**): top-level KS type name (`meta/id` conceptually).
+- `default_endian` (**required**): either `le` or `be`; maps to `meta/endian` default semantics.
+- `types`: named type aliases / helper types.
+- `attrs`: sequence-style attributes (`seq` entries conceptually).
+- `instances`: computed/lazy fields (`instances` conceptually).
+- `validations`: declarative validation predicates (maps to `valid/*`).
+
+### Type system (`TypeRef`)
+
+`TypeRef` supports:
+
+- `primitive`: one of `u1/u2/u4/u8/s1/s2/s4/s8/f4/f8/str/bytes`
+- `user`: reference to another type by name
+
+### Attributes (`Attr`)
+
+Each attribute includes:
+
+- `id` (**required**)
+- `type` (**required**)
+- `endian_override` (optional, `le`/`be`), overriding spec default when present
+- `size_expr` (optional expression), mapping to `size`-style KS constraints
+
+### Expressions (`Expr`)
+
+Minimal expression coverage in v1:
+
+- integer literals
+- boolean literals
+- name references
+- unary operators
+- binary operators
+
+Expression text form is prefix S-expression:
+
+- `(int 1)`
+- `(bool true)`
+- `(name "len")`
+- `(un "!" (name "bad"))`
+- `(bin "+" (name "len") (int 4))`
+
+### Instances (`Instance`)
+
+- `id` (**required**)
+- `value_expr` (**required**) for computed value expression
+
+### Validations (`Validation`)
+
+- `target` (**required**) logical field/instance identifier being constrained
+- `condition_expr` (**required**) boolean expression
+- `message` (optional text; currently serialized as string, may be empty)
+
+## Textual wire format
+
+Current round-trip format is a deterministic line-based encoding:
+
+- starts with `KSIR1`
+- section counts for `types`, `attrs`, `instances`, `validations`
+- quoted strings for names/messages and expression payloads
+- ends with `end`
+
+This format is intentionally simple for migration bring-up and testability; later commits may introduce canonical JSON while preserving field semantics.
+
+## Invariants (validated in tests)
+
+- `spec.name` is required.
+- user `TypeRef` requires non-empty user type name.
+- `attr.id` is required.
+- `instance.id` is required.
+- `validation.target` is required.
+- expression parse/structure must be syntactically valid.
+
+## Mapping to existing KS concepts
+
+- `Spec.default_endian` ↔ KS `meta/endian`
+- `Spec.attrs` ↔ KS `seq`
+- `Attr.size_expr` ↔ KS `size`
+- `Spec.instances` ↔ KS `instances`
+- `Spec.validations` ↔ KS `valid/*` checks
+- `TypeRef.user` ↔ user-defined / imported type references
+
+## TODO
+
+- Expand expression coverage (`if`, casts, enum refs, IO helpers) to match Scala semantics.
+- Add explicit repetition/switch/process nodes.
+- Add schema version negotiation rules for forward/backward compatibility.

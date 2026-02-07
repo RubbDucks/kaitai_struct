@@ -10,6 +10,12 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+add_library(kscpp_ir STATIC
+  src/ir.cpp
+)
+target_include_directories(kscpp_ir PUBLIC src)
+target_compile_features(kscpp_ir PUBLIC cxx_std_17)
+
 add_library(kscpp_cli STATIC
   src/cli_options.cpp
 )
@@ -29,7 +35,13 @@ add_executable(kscpp_cli_tests
 )
 target_link_libraries(kscpp_cli_tests PRIVATE kscpp_cli)
 
+add_executable(kscpp_ir_tests
+  tests/ir_roundtrip_test.cpp
+)
+target_link_libraries(kscpp_ir_tests PRIVATE kscpp_ir)
+
 add_test(NAME kscpp_cli_unit_tests COMMAND kscpp_cli_tests)
+add_test(NAME kscpp_ir_unit_tests COMMAND kscpp_ir_tests)
 
 add_test(NAME kscpp_version_experimental COMMAND kscpp --version)
 set_tests_properties(kscpp_version_experimental PROPERTIES
