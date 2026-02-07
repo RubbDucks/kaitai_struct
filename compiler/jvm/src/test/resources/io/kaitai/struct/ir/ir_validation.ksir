@@ -1,0 +1,13 @@
+KSIR1
+name "ir_validation"
+default_endian be
+types 0
+attrs 2
+attr "a" primitive "u1" none "none"
+attr "b" primitive "u1" none "none"
+instances 1
+instance "is_big" "(bin \">=\" (name \"a\") (int 4))"
+validations 2
+validation "a" "(bin \"&\" (bin \">=\" (name \"a\") (int 3)) (bin \"<=\" (name \"a\") (int 9)))" ""
+validation "b" "(bin \"|\" (bin \"==\" (name \"b\") (int 1)) (bin \"==\" (name \"b\") (int 2)))" ""
+end

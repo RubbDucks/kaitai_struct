@@ -228,5 +228,6 @@ When editing `.ksy` specs or generator logic, keep these core concepts in mind:
   - `update-alternatives --set lua-compiler /usr/bin/luac5.4`
 - Installing `lua5.1` (often pulled in by distro `luarocks` packages) can silently switch the `lua`/`luac` alternatives away from 5.4; re-run both `update-alternatives --set ...5.4` commands before `tests/run-lua`.
 - `tests/run-python` depends on generated `tests/compiled/python/testformats` and `tests/compiled/python/testwrite`; run `tests/build-formats python` before executing it.
+- `tests/build-formats` accepts one language target per invocation in this environment; run it separately (for example `./build-formats python` then `./build-formats lua`) to ensure both output trees are generated.
 - If `tests/run-cpp_stl_17` fails with missing generated headers (for example `imports_rel_1.h`), rebuild the compiler (`tests/build-compiler`) and regenerate C++17 outputs with `../compiler/jvm/target/universal/stage/bin/kaitai-struct-compiler -- --verbose file -t cpp_stl --cpp-standard 17 -d tests/compiled/cpp_stl_17 --import-path ../formats --import-path formats/ks_path formats/*.ksy`.
 - `tests/run-cpp_stl_17` can take a long time and produce very verbose compiler output; when debugging CI-like runs locally, redirect stdout/stderr to a log file and tail `tests/test_out/cpp_stl_17/build-*.log` for progress.
