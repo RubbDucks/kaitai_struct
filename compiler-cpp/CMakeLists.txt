@@ -96,9 +96,16 @@ set_tests_properties(kscpp_from_ir_codegen_hello_world PROPERTIES
   PASS_REGULAR_EXPRESSION "IR codegen succeeded"
 )
 
-add_test(NAME kscpp_from_ir_codegen_unsupported_instance
-  COMMAND kscpp --from-ir ${CMAKE_CURRENT_SOURCE_DIR}/tests/data/unsupported_instance.ksir -t cpp_stl --cpp-standard 17
+add_test(NAME kscpp_from_ir_codegen_expr_subset_a
+  COMMAND kscpp --from-ir ${CMAKE_CURRENT_SOURCE_DIR}/tests/data/expr_subset_a.ksir -t cpp_stl --cpp-standard 17 -d ${CMAKE_CURRENT_BINARY_DIR}/generated_expr_subset_a
 )
-set_tests_properties(kscpp_from_ir_codegen_unsupported_instance PROPERTIES
+set_tests_properties(kscpp_from_ir_codegen_expr_subset_a PROPERTIES
+  PASS_REGULAR_EXPRESSION "IR codegen succeeded"
+)
+
+add_test(NAME kscpp_from_ir_codegen_unsupported_validation
+  COMMAND kscpp --from-ir ${CMAKE_CURRENT_SOURCE_DIR}/tests/data/unsupported_validation.ksir -t cpp_stl --cpp-standard 17
+)
+set_tests_properties(kscpp_from_ir_codegen_unsupported_validation PROPERTIES
   WILL_FAIL TRUE
 )

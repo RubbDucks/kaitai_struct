@@ -1,0 +1,10 @@
+KSIR1
+name "unsupported_validation"
+default_endian le
+types 0
+attrs 1
+attr "one" primitive "u1" none "none"
+instances 0
+validations 1
+validation "one" "(bool true)" "todo"
+end

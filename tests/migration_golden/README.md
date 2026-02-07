@@ -17,3 +17,9 @@ Compare Scala vs experimental C++17 (IR-driven) normalized output for minimal su
 ```bash
 tests/migration_golden/compare_cpp17_from_ir.sh
 ```
+
+Compare Scala vs experimental C++17 (IR-driven) for expression subset A fixture:
+
+```bash
+tests/migration_golden/compare_cpp17_expr_subset_a.sh
+```
