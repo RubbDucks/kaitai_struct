@@ -21,14 +21,15 @@ cmake --build compiler-cpp/build
 ## Run
 
 ```sh
+./compiler-cpp/build/kscpp --help
 ./compiler-cpp/build/kscpp --version
 ```
 
-Expected output includes:
+Current CLI migration status:
 
-- `kscpp`
-- a version token
-- `experimental`
+- argument parsing mirrors the Scala CLI surface for key options
+- `--help` and `--version` return success
+- successful parse of compile-mode arguments currently returns a `Not implemented` execution path
 
 ## Run C++ skeleton checks
 
@@ -36,7 +37,7 @@ Expected output includes:
 ctest --test-dir compiler-cpp/build --output-on-failure
 ```
 
-This verifies that the experimental binary builds and reports experimental status.
+This verifies parser unit coverage, `--help` / `--version`, and parse error exit-code behavior.
 
 ## Non-integration guarantee for this phase
 
