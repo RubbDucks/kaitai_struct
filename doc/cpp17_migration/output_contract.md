@@ -75,3 +75,16 @@ This script performs:
 ## TODO (next commit scope)
 
 - Add a comparator script that runs the C++17 compiler path with the same fixture inventory and diffs against `tests/migration_golden/scala/`.
+
+
+## C++17 migration golden comparator (first backend slice)
+
+The first backend slice adds a focused comparator for `hello_world`-like specs:
+
+```sh
+tests/migration_golden/compare_cpp17_from_ir.sh
+```
+
+It compiles `tests/formats/hello_world.ksy` via Scala (`cpp_stl` + `--cpp-standard 17`) and compares normalized output against C++17 IR-driven generation from `compiler-cpp/tests/data/hello_world_minimal.ksir`.
+
+This check is opt-in and migration-scoped; it does not alter default Scala compiler/test wiring.

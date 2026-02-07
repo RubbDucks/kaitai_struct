@@ -1,0 +1,9 @@
+KSIR1
+name "hello_world"
+default_endian le
+types 0
+attrs 1
+attr "one" primitive "u1" none "none"
+instances 0
+validations 0
+end

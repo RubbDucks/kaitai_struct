@@ -10,3 +10,10 @@ Regenerate Scala baselines:
 ```bash
 tests/migration_golden/generate_scala_snapshots.sh
 ```
+
+
+Compare Scala vs experimental C++17 (IR-driven) normalized output for minimal supported subset:
+
+```bash
+tests/migration_golden/compare_cpp17_from_ir.sh
+```

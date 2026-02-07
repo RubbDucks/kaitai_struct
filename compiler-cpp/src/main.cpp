@@ -1,6 +1,7 @@
 #include <iostream>
 
 #include "cli_options.h"
+#include "codegen.h"
 #include "ir.h"
 
 int main(int argc, char** argv) {
@@ -24,6 +25,20 @@ int main(int argc, char** argv) {
       std::cerr << "Error: IR validation failed: " << load_result.error << std::endl;
       return 1;
     }
+
+    const bool wants_cpp_stl = parse.options.targets.size() == 1 && parse.options.targets[0] == "cpp_stl";
+    const bool wants_cpp17 = parse.options.runtime.cpp_standard == "17";
+    if (wants_cpp_stl && wants_cpp17) {
+      const auto gen = kscpp::codegen::EmitCppStl17FromIr(spec, parse.options);
+      if (!gen.ok) {
+        std::cerr << "Error: C++17 IR codegen failed: " << gen.error << std::endl;
+        return 1;
+      }
+      std::cout << "IR codegen succeeded: " << spec.name << " (target=cpp_stl, cpp_standard=17)"
+                << std::endl;
+      return 0;
+    }
+
     std::cout << "IR validation succeeded: " << spec.name << std::endl;
     return 0;
   }

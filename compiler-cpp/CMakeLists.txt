@@ -22,10 +22,16 @@ add_library(kscpp_cli STATIC
 target_include_directories(kscpp_cli PUBLIC src)
 target_compile_features(kscpp_cli PUBLIC cxx_std_17)
 
+add_library(kscpp_codegen STATIC
+  src/codegen.cpp
+)
+target_include_directories(kscpp_codegen PUBLIC src)
+target_compile_features(kscpp_codegen PUBLIC cxx_std_17)
+
 add_executable(kscpp
   src/main.cpp
 )
-target_link_libraries(kscpp PRIVATE kscpp_cli kscpp_ir)
+target_link_libraries(kscpp PRIVATE kscpp_cli kscpp_ir kscpp_codegen)
 target_compile_features(kscpp PRIVATE cxx_std_17)
 
 enable_testing()
@@ -40,8 +46,15 @@ add_executable(kscpp_ir_tests
 )
 target_link_libraries(kscpp_ir_tests PRIVATE kscpp_ir)
 
+
+add_executable(kscpp_codegen_tests
+  tests/codegen_test.cpp
+)
+target_link_libraries(kscpp_codegen_tests PRIVATE kscpp_codegen kscpp_cli kscpp_ir)
+
 add_test(NAME kscpp_cli_unit_tests COMMAND kscpp_cli_tests)
 add_test(NAME kscpp_ir_unit_tests COMMAND kscpp_ir_tests)
+add_test(NAME kscpp_codegen_unit_tests COMMAND kscpp_codegen_tests)
 
 add_test(NAME kscpp_version_experimental COMMAND kscpp --version)
 set_tests_properties(kscpp_version_experimental PROPERTIES
@@ -72,5 +85,20 @@ add_test(NAME kscpp_from_ir_invalid_cycle
   COMMAND kscpp --from-ir ${CMAKE_CURRENT_SOURCE_DIR}/tests/data/invalid_cycle.ksir
 )
 set_tests_properties(kscpp_from_ir_invalid_cycle PROPERTIES
+  WILL_FAIL TRUE
+)
+
+
+add_test(NAME kscpp_from_ir_codegen_hello_world
+  COMMAND kscpp --from-ir ${CMAKE_CURRENT_SOURCE_DIR}/tests/data/hello_world_minimal.ksir -t cpp_stl --cpp-standard 17 -d ${CMAKE_CURRENT_BINARY_DIR}/generated_hello_world
+)
+set_tests_properties(kscpp_from_ir_codegen_hello_world PROPERTIES
+  PASS_REGULAR_EXPRESSION "IR codegen succeeded"
+)
+
+add_test(NAME kscpp_from_ir_codegen_unsupported_instance
+  COMMAND kscpp --from-ir ${CMAKE_CURRENT_SOURCE_DIR}/tests/data/unsupported_instance.ksir -t cpp_stl --cpp-standard 17
+)
+set_tests_properties(kscpp_from_ir_codegen_unsupported_instance PROPERTIES
   WILL_FAIL TRUE
 )
