@@ -204,6 +204,7 @@ When editing `.ksy` specs or generator logic, keep these core concepts in mind:
 - Lua runtime/tests need Lua >= 5.3 and < 5.5 (5.3/5.4). Some environments default to Lua 5.1; switch interpreter before running tests.
 - Lua test dependencies used by `tests/run-lua`: `luaunit`, `luafilesystem`; for broad encoding coverage install `lua-iconv` too.
 - If package installation suddenly fails with 404 from Ubuntu mirrors, run `apt-get update` and retry.
+- On fresh Ubuntu images used here, `sbt` is often missing even when Java is present; install sbt repo keys/lists first, then `apt-get install sbt` before running `tests/build-compiler`.
 - When debugging Python test regressions, remember the known pitfalls:
   - missing `PY2` compatibility export in `runtime/python/kaitaistruct.py`
   - failed short reads on seekable streams must rewind before raising EOF
