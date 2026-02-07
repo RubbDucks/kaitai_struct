@@ -31,6 +31,7 @@ Current CLI migration status:
 - `--help` and `--version` return success
 - successful parse of compile-mode arguments currently returns a `Not implemented` execution path
 - `--from-ir <file>` validates Scala-exported `KSIR1` payloads and exits successfully on valid IR
+- `--from-ir <file> -t cpp_stl --cpp-standard 17 -d <outdir>` enables the first experimental IR→C++17 codegen slice (minimal hello-world subset)
 
 ## Run C++ skeleton checks
 
@@ -56,3 +57,34 @@ Expected behavior in this phase:
 
 - valid IR: prints `IR validation succeeded: <spec>` and exits with status `0`
 - invalid IR: prints `Error: IR validation failed: ...` and exits with non-zero status
+
+## First IR→C++17 codegen slice (experimental, opt-in)
+
+This commit keeps Scala as the default path and adds an **opt-in** C++17 backend slice for a minimal subset:
+
+- supported: root `seq` attrs with primitive integer fields (`u1/u2/u4/u8/s1/s2/s4/s8`)
+- unsupported (explicit diagnostic): `types`, `instances`, `validations`, user types, sized attrs, and non-integer primitives
+
+Example:
+
+```sh
+./compiler-cpp/build/kscpp --from-ir compiler-cpp/tests/data/hello_world_minimal.ksir -t cpp_stl --cpp-standard 17 -d /tmp/kscpp_out
+```
+
+Expected success output:
+
+```
+IR codegen succeeded: hello_world (target=cpp_stl, cpp_standard=17)
+```
+
+Unsupported example:
+
+```sh
+./compiler-cpp/build/kscpp --from-ir compiler-cpp/tests/data/unsupported_instance.ksir -t cpp_stl --cpp-standard 17
+```
+
+Expected failure output includes:
+
+```
+Error: C++17 IR codegen failed: not yet supported: ...
+```
