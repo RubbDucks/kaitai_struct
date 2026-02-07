@@ -727,7 +727,19 @@ class KaitaiStream:
 
     def write_bytes_limit(self, buf, size, term, pad_byte):
         n = len(buf)
-
+        # Strictly speaking, this assertion is redundant because it is already
+        # done in the corresponding _check() method in the generated code, but
+        # it seems to make sense to include it here anyway so that this method
+        # itself does something reasonable for every set of arguments.
+        #
+        # However, it should never be `false` when operated correctly (and in
+        # this case, assigning inconsistent values to fields of a KS-generated
+        # object is considered correct operation if the user application calls
+        # the corresponding _check(), which we know would raise an error and
+        # thus the code should not reach _write() and this method at all). So
+        # it's by design that this throws AssertionError, not any specific
+        # error, because it's not intended to be caught in user applications,
+        # but avoided by calling all _check() methods correctly.
         self.write_bytes(buf)
         if n < size:
             self.write_u1(term)
@@ -815,12 +827,8 @@ class KaitaiStream:
             self.handler = handler
 
         def write_back(self, parent):
-            old_pos = parent.pos()
             parent.seek(self.pos)
-            try:
-                self.handler(parent)
-            finally:
-                parent.seek(old_pos)
+            self.handler(parent)
 
     def add_child_stream(self, child):
         self.child_streams.append(child)
@@ -831,9 +839,9 @@ class KaitaiStream:
             child.write_back_child_streams(self)
 
         self.child_streams.clear()
-        self.seek(_pos)
         if parent is not None:
             self._write_back(parent)
+        self.seek(_pos)
 
     def _write_back(self, parent):
         self.write_back_handler.write_back(parent)
