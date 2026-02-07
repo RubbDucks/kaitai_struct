@@ -68,10 +68,8 @@ void rewind_on_failed_read(std::istream* io, std::istream::pos_type pos_before_r
         return;
     }
 
-    std::ios::iostate old_state = io->rdstate();
     io->clear();
     io->seekg(pos_before_read);
-    io->clear(old_state);
 }
 
 void read_exact(std::istream* io, char* buf, std::streamsize len) {
@@ -837,6 +835,16 @@ int kaitai::kstream::mod(int a, int b) {
     if (r < 0)
         r += b;
     return r;
+}
+
+int kaitai::kstream::div(int a, int b) {
+    if (b <= 0)
+        throw std::invalid_argument("div: divisor b <= 0");
+    int q = a / b;
+    int r = a % b;
+    if (r < 0)
+        q -= 1;
+    return q;
 }
 
 void kaitai::kstream::unsigned_to_decimal(uint64_t number, char *buf, std::size_t &buf_contents_start) {
