@@ -66,14 +66,84 @@ int main() {
   }
 
   {
+    kscpp::ir::Spec spec;
+    spec.name = "expr_subset_a";
+    spec.default_endian = kscpp::ir::Endian::kLe;
+
+    kscpp::ir::Attr a;
+    a.id = "a";
+    a.type.kind = kscpp::ir::TypeRef::Kind::kPrimitive;
+    a.type.primitive = kscpp::ir::PrimitiveType::kU1;
+    spec.attrs.push_back(a);
+
+    kscpp::ir::Attr b;
+    b.id = "b";
+    b.type.kind = kscpp::ir::TypeRef::Kind::kPrimitive;
+    b.type.primitive = kscpp::ir::PrimitiveType::kU1;
+    spec.attrs.push_back(b);
+
+    kscpp::ir::Instance lit;
+    lit.id = "lit";
+    lit.value_expr = kscpp::ir::Expr::Int(7);
+    spec.instances.push_back(lit);
+
+    kscpp::ir::Instance arith;
+    arith.id = "arith";
+    arith.value_expr = kscpp::ir::Expr::Binary(
+        "-", kscpp::ir::Expr::Binary("+", kscpp::ir::Expr::Name("a"),
+                                      kscpp::ir::Expr::Binary("*", kscpp::ir::Expr::Name("b"),
+                                                              kscpp::ir::Expr::Int(3))),
+        kscpp::ir::Expr::Int(2));
+    spec.instances.push_back(arith);
+
+    kscpp::ir::Instance logic;
+    logic.id = "logic";
+    logic.value_expr =
+        kscpp::ir::Expr::Binary("and", kscpp::ir::Expr::Binary(">", kscpp::ir::Expr::Name("a"),
+                                                                 kscpp::ir::Expr::Name("b")),
+                                kscpp::ir::Expr::Binary("==", kscpp::ir::Expr::Name("lit"),
+                                                        kscpp::ir::Expr::Int(7)));
+    spec.instances.push_back(logic);
+
+    kscpp::ir::Instance ref_mix;
+    ref_mix.id = "ref_mix";
+    ref_mix.value_expr =
+        kscpp::ir::Expr::Binary("+", kscpp::ir::Expr::Name("lit"), kscpp::ir::Expr::Name("a"));
+    spec.instances.push_back(ref_mix);
+
+    kscpp::CliOptions options;
+    const std::filesystem::path out = std::filesystem::temp_directory_path() / "kscpp_codegen_expr_test";
+    std::filesystem::remove_all(out);
+    options.out_dir = out.string();
+    options.targets = {"cpp_stl"};
+    options.runtime.cpp_standard = "17";
+
+    auto r = kscpp::codegen::EmitCppStl17FromIr(spec, options);
+    ok &= Check(r.ok, "expression subset A codegen succeeds");
+
+    const std::string h = ReadAll(out / "expr_subset_a.h");
+    const std::string c = ReadAll(out / "expr_subset_a.cpp");
+    ok &= Check(h.find("int32_t arith();") != std::string::npos,
+                "arith instance accessor emitted");
+    ok &= Check(h.find("bool logic();") != std::string::npos, "logic bool accessor emitted");
+    ok &= Check(c.find("m_arith = (a() + b() * 3) - 2;") != std::string::npos,
+                "arithmetic precedence preserved without over-parenthesizing");
+    ok &= Check(c.find("m_logic =  ((a() > b()) && (lit() == 7)) ;") != std::string::npos,
+                "boolean grouping/parenthesization emitted");
+    ok &= Check(c.find("m_ref_mix = lit() + a();") != std::string::npos,
+                "instance-to-instance and field refs emitted");
+  }
+
+  {
     kscpp::ir::Spec unsupported;
     unsupported.name = "unsupported";
     unsupported.default_endian = kscpp::ir::Endian::kLe;
 
-    kscpp::ir::Instance inst;
-    inst.id = "x";
-    inst.value_expr = kscpp::ir::Expr::Int(1);
-    unsupported.instances.push_back(inst);
+    kscpp::ir::Validation validation;
+    validation.target = "one";
+    validation.condition_expr = kscpp::ir::Expr::Bool(true);
+    validation.message = "todo";
+    unsupported.validations.push_back(validation);
 
     kscpp::CliOptions options;
     options.out_dir = (std::filesystem::temp_directory_path() / "kscpp_codegen_test_unsupported").string();

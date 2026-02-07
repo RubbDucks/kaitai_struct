@@ -1,0 +1,14 @@
+KSIR1
+name "expr_subset_a"
+default_endian le
+types 0
+attrs 2
+attr "a" primitive "u1" none "none"
+attr "b" primitive "u1" none "none"
+instances 4
+instance "lit" "(int 7)"
+instance "arith" "(bin \"-\" (bin \"+\" (name \"a\") (bin \"*\" (name \"b\") (int 3))) (int 2))"
+instance "logic" "(bin \"and\" (bin \">\" (name \"a\") (name \"b\")) (bin \"==\" (name \"lit\") (int 7)))"
+instance "ref_mix" "(bin \"+\" (name \"lit\") (name \"a\"))"
+validations 0
+end
