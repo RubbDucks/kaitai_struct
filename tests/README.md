@@ -53,6 +53,9 @@ There are a few scripts that automate steps specified above:
 * `ci-$LANGUAGE` also runs all tests for a particular `$LANGUAGE`, but
   logs all output into designated log file instead (mostly useful for
   aggregation within a CI system afterwards).
+* `ci-cpp17-readiness-review` runs migration default-flip readiness gates
+  (checklist mapping validation, differential parity checks, and benchmark
+  threshold checks).
 
 These scripts require Kaitai Struct compiler and language-specific
 runtime modules. In this repository, default locations are configured in
