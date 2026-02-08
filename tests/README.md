@@ -44,6 +44,9 @@ There are a few scripts that automate steps specified above:
 * `build-formats` compiles all format descriptions in `formats/` with
   this compiler for every supported language, placing results in
   `compiled/$LANGUAGE`
+  * Engine selection is controlled by `KAITAI_COMPILER_ENGINE` (default: `scala`).
+    Set `KAITAI_COMPILER_ENGINE=cpp17` for the opt-in C++17 migration flow
+    (currently limited to `./build-formats cpp_stl`).
 * `run-$LANGUAGE` executes all tests for a particular `$LANGUAGE`
   using preferred language-specific testing tool. The output is
   generally dumped on screen for quick assessment during development.
@@ -58,6 +61,14 @@ runtime modules. In this repository, default locations are configured in
 
 This repository currently has no git submodules. If your local checkout
 uses non-default locations, edit `tests/config`.
+
+To roll back to the stable compiler path at any time, unset the engine override:
+
+```sh
+unset KAITAI_COMPILER_ENGINE
+# or force explicitly
+KAITAI_COMPILER_ENGINE=scala ./build-compiler
+```
 
 For the canonical contributor happy-path and release workflow, see
 `doc/workflows.adoc`.

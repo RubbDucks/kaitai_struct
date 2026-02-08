@@ -13,47 +13,87 @@ fi
 rm -rf "$OUTPUT_DIR"
 mkdir -p "$OUTPUT_DIR"
 
-# 	--java-from-file-class io.kaitai.struct.RandomAccessFileKaitaiStream \
+if [ "$KAITAI_COMPILER_ENGINE" = "scala" ]; then
+    echo "[compiler-engine] selected=scala script=build-formats target=$TARGET" >&2
 
-"$COMPILER_DIR/jvm/target/universal/stage/bin/kaitai-struct-compiler" -- \
-	--verbose file -t "$TARGET" -d "$OUTPUT_DIR" \
-	--import-path "$FORMATS_REPO_DIR" \
-	--import-path "$FORMATS_KSY_DIR/ks_path" \
-	--java-package io.kaitai.struct.testformats \
-	--php-namespace 'Kaitai\Struct\Tests' \
-	--python-package testformats \
-	--go-package test_formats \
-	--nim-module "kaitai_struct_nim_runtime" \
-	--nim-opaque "../../tests/spec/nim/opaque/" \
-	"$FORMATS_KSY_DIR"/*.ksy || :
+    # 	--java-from-file-class io.kaitai.struct.RandomAccessFileKaitaiStream \
 
-if [ "$TARGET" = java ] || [ "$TARGET" = all ]; then
-	"$COMPILER_DIR/jvm/target/universal/stage/bin/kaitai-struct-compiler" -- \
-		--verbose file -t java -d "$FORMATS_COMPILED_DIR/java/src" \
-		--no-auto-read \
-		--read-write \
-		--import-path "$FORMATS_REPO_DIR" \
-		--import-path "$FORMATS_KSY_DIR/ks_path" \
-		--java-package io.kaitai.struct.testwrite \
-		"$FORMATS_KSY_DIR"/*.ksy || :
-fi
+    "$SCALA_COMPILER_BIN" -- \
+    	--verbose file -t "$TARGET" -d "$OUTPUT_DIR" \
+    	--import-path "$FORMATS_REPO_DIR" \
+    	--import-path "$FORMATS_KSY_DIR/ks_path" \
+    	--java-package io.kaitai.struct.testformats \
+    	--php-namespace 'Kaitai\Struct\Tests' \
+    	--python-package testformats \
+    	--go-package test_formats \
+    	--nim-module "kaitai_struct_nim_runtime" \
+    	--nim-opaque "../../tests/spec/nim/opaque/" \
+    	"$FORMATS_KSY_DIR"/*.ksy || :
 
-if [ "$TARGET" = python ] || [ "$TARGET" = all ]; then
-	mv -n "$FORMATS_COMPILED_DIR/python" "$FORMATS_COMPILED_DIR/python-tmp"
-	mkdir "$FORMATS_COMPILED_DIR/python"
-	mv -n "$FORMATS_COMPILED_DIR/python-tmp" "$FORMATS_COMPILED_DIR/python/testformats"
-	# __init__.py is needed in Python 2
-	touch "$FORMATS_COMPILED_DIR/python/testformats/__init__.py"
+    if [ "$TARGET" = java ] || [ "$TARGET" = all ]; then
+    	"$SCALA_COMPILER_BIN" -- \
+    		--verbose file -t java -d "$FORMATS_COMPILED_DIR/java/src" \
+    		--no-auto-read \
+    		--read-write \
+    		--import-path "$FORMATS_REPO_DIR" \
+    		--import-path "$FORMATS_KSY_DIR/ks_path" \
+    		--java-package io.kaitai.struct.testwrite \
+    		"$FORMATS_KSY_DIR"/*.ksy || :
+    fi
 
-	"$COMPILER_DIR/jvm/target/universal/stage/bin/kaitai-struct-compiler" -- \
-		--verbose file -t python -d "$FORMATS_COMPILED_DIR/python/testwrite" \
-		--no-auto-read \
-		--read-write \
-		--import-path "$FORMATS_REPO_DIR" \
-		--import-path "$FORMATS_KSY_DIR/ks_path" \
-		--python-package testwrite \
-		"$FORMATS_KSY_DIR"/*.ksy || :
+    if [ "$TARGET" = python ] || [ "$TARGET" = all ]; then
+    	mv -n "$FORMATS_COMPILED_DIR/python" "$FORMATS_COMPILED_DIR/python-tmp"
+    	mkdir "$FORMATS_COMPILED_DIR/python"
+    	mv -n "$FORMATS_COMPILED_DIR/python-tmp" "$FORMATS_COMPILED_DIR/python/testformats"
+    	# __init__.py is needed in Python 2
+    	touch "$FORMATS_COMPILED_DIR/python/testformats/__init__.py"
 
-	# __init__.py is needed in Python 2
-	touch "$FORMATS_COMPILED_DIR/python/testwrite/__init__.py"
+    	"$SCALA_COMPILER_BIN" -- \
+    		--verbose file -t python -d "$FORMATS_COMPILED_DIR/python/testwrite" \
+    		--no-auto-read \
+    		--read-write \
+    		--import-path "$FORMATS_REPO_DIR" \
+    		--import-path "$FORMATS_KSY_DIR/ks_path" \
+    		--python-package testwrite \
+    		"$FORMATS_KSY_DIR"/*.ksy || :
+
+    	# __init__.py is needed in Python 2
+    	touch "$FORMATS_COMPILED_DIR/python/testwrite/__init__.py"
+    fi
+elif [ "$KAITAI_COMPILER_ENGINE" = "cpp17" ]; then
+    echo "[compiler-engine] selected=cpp17 script=build-formats target=$TARGET" >&2
+
+    if [ "$TARGET" != "cpp_stl" ]; then
+        echo "build-formats: cpp17 engine currently supports only target=cpp_stl (got: $TARGET)" >&2
+        exit 2
+    fi
+
+    if [ ! -x "$SCALA_COMPILER_BIN" ]; then
+        echo "build-formats: Scala stage compiler missing at $SCALA_COMPILER_BIN; run tests/build-compiler first" >&2
+        exit 2
+    fi
+
+    if [ ! -x "$CPP17_COMPILER_BIN" ]; then
+        echo "build-formats: C++17 compiler missing at $CPP17_COMPILER_BIN; run cmake -S compiler-cpp -B compiler-cpp/build && cmake --build compiler-cpp/build" >&2
+        exit 2
+    fi
+
+    TMP_IR_DIR="$(mktemp -d)"
+    trap 'rm -rf "$TMP_IR_DIR"' EXIT INT TERM
+
+    for ksy in "$FORMATS_KSY_DIR"/*.ksy; do
+        stem="$(basename "$ksy" .ksy)"
+        ir_path="$TMP_IR_DIR/$stem.ksir"
+
+        "$SCALA_COMPILER_BIN" -t cpp_stl --cpp-standard 17 \
+            --emit-ir "$ir_path" \
+            --import-path "$FORMATS_REPO_DIR" \
+            --import-path "$FORMATS_KSY_DIR/ks_path" \
+            -- -d "$TMP_IR_DIR/scala_unused" "$ksy" || continue
+
+        "$CPP17_COMPILER_BIN" --from-ir "$ir_path" -t cpp_stl --cpp-standard 17 -d "$OUTPUT_DIR" || :
+    done
+else
+    echo "Unknown KAITAI_COMPILER_ENGINE='$KAITAI_COMPILER_ENGINE' (supported: scala, cpp17)" >&2
+    exit 2
 fi

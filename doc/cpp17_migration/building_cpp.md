@@ -33,6 +33,46 @@ Current CLI migration status:
 - `--from-ir <file>` validates Scala-exported `KSIR1` payloads and exits successfully on valid IR
 - `--from-ir <file> -t cpp_stl --cpp-standard 17 -d <outdir>` enables the first experimental IR→C++17 codegen slice (minimal hello-world subset)
 
+
+## Opt-in regular workflow switch
+
+Regular `tests/` workflows now support an opt-in engine selector:
+
+```sh
+KAITAI_COMPILER_ENGINE=cpp17 ./tests/build-compiler
+KAITAI_COMPILER_ENGINE=cpp17 ./tests/build-formats cpp_stl
+```
+
+Telemetry marker emitted by scripts:
+
+```text
+[compiler-engine] selected=cpp17 script=build-compiler
+[compiler-engine] selected=cpp17 script=build-formats target=cpp_stl
+```
+
+By default (`KAITAI_COMPILER_ENGINE` unset), scripts keep using the Scala engine.
+
+## Rollback
+
+If the experimental path causes issues, return to the default Scala flow immediately:
+
+```sh
+unset KAITAI_COMPILER_ENGINE
+./tests/build-compiler
+./tests/build-formats cpp_stl
+```
+
+## Troubleshooting
+
+- `Unknown KAITAI_COMPILER_ENGINE=...`: use `scala` or `cpp17`.
+- `build-formats: cpp17 engine currently supports only target=cpp_stl`: re-run with `./tests/build-formats cpp_stl`.
+- `Scala stage compiler missing`: run `./tests/build-compiler` (Scala stage build is still required to emit migration IR).
+- `C++17 compiler missing`: run:
+  ```sh
+  cmake -S compiler-cpp -B compiler-cpp/build
+  cmake --build compiler-cpp/build
+  ```
+
 ## Run C++ skeleton checks
 
 ```sh

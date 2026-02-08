@@ -2,6 +2,23 @@
 
 . "$(dirname "$0")/config"
 
-cd "$COMPILER_DIR"
-sbt compilerJVM/stage
-sbt compile fastOptJS
+if [ "$KAITAI_COMPILER_ENGINE" = "scala" ]; then
+  echo "[compiler-engine] selected=scala script=build-compiler" >&2
+  cd "$COMPILER_DIR"
+  sbt compilerJVM/stage
+  sbt compile fastOptJS
+elif [ "$KAITAI_COMPILER_ENGINE" = "cpp17" ]; then
+  echo "[compiler-engine] selected=cpp17 script=build-compiler" >&2
+
+  cd "$COMPILER_DIR"
+  # Scala stage build remains required to export IR consumed by the C++17 engine.
+  sbt compilerJVM/stage
+  sbt compile fastOptJS
+
+  cd "$COMPILER_CPP_DIR"
+  cmake -S . -B build
+  cmake --build build
+else
+  echo "Unknown KAITAI_COMPILER_ENGINE='$KAITAI_COMPILER_ENGINE' (supported: scala, cpp17)" >&2
+  exit 2
+fi

@@ -1,7 +1,17 @@
 COMPILER_DIR=../compiler
+COMPILER_CPP_DIR=../compiler-cpp
 FORMATS_KSY_DIR=formats
 FORMATS_COMPILED_DIR=compiled
 FORMATS_REPO_DIR=../formats
+
+SCALA_COMPILER_BIN="$COMPILER_DIR/jvm/target/universal/stage/bin/kaitai-struct-compiler"
+CPP17_COMPILER_BIN="$COMPILER_CPP_DIR/build/kscpp"
+
+# Compiler engine selector for test/build workflows.
+# Supported values:
+#   - scala (default): existing Scala compiler path
+#   - cpp17: opt-in migration path (currently only supported for build-formats cpp_stl)
+KAITAI_COMPILER_ENGINE=${KAITAI_COMPILER_ENGINE:-scala}
 
 LUA_RUNTIME_DIR=../runtime/lua
 PYTHON_RUNTIME_DIR=../runtime/python
