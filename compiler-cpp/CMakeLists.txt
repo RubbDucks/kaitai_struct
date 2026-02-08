@@ -116,3 +116,25 @@ add_test(NAME kscpp_from_ir_codegen_type_subset
 set_tests_properties(kscpp_from_ir_codegen_type_subset PROPERTIES
   PASS_REGULAR_EXPRESSION "IR codegen succeeded"
 )
+
+
+add_test(NAME kscpp_from_ir_codegen_control_flow_subset
+  COMMAND kscpp --from-ir ${CMAKE_CURRENT_SOURCE_DIR}/tests/data/control_flow_subset.ksir -t cpp_stl --cpp-standard 17 -d ${CMAKE_CURRENT_BINARY_DIR}/generated_control_flow_subset
+)
+set_tests_properties(kscpp_from_ir_codegen_control_flow_subset PROPERTIES
+  PASS_REGULAR_EXPRESSION "IR codegen succeeded"
+)
+
+add_test(NAME kscpp_from_ir_invalid_switch_duplicate_else
+  COMMAND kscpp --from-ir ${CMAKE_CURRENT_SOURCE_DIR}/tests/data/invalid_switch_duplicate_else.ksir
+)
+set_tests_properties(kscpp_from_ir_invalid_switch_duplicate_else PROPERTIES
+  WILL_FAIL TRUE
+)
+
+add_test(NAME kscpp_from_ir_codegen_unsupported_dynamic_switch
+  COMMAND kscpp --from-ir ${CMAKE_CURRENT_SOURCE_DIR}/tests/data/unsupported_dynamic_switch.ksir -t cpp_stl --cpp-standard 17
+)
+set_tests_properties(kscpp_from_ir_codegen_unsupported_dynamic_switch PROPERTIES
+  WILL_FAIL TRUE
+)

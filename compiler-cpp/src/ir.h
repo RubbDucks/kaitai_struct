@@ -68,12 +68,29 @@ struct TypeDef {
 };
 
 struct Attr {
+  enum class RepeatKind {
+    kNone,
+    kEos,
+    kExpr,
+    kUntil,
+  };
+
+  struct SwitchCase {
+    std::optional<Expr> match_expr;
+    TypeRef type;
+  };
+
   std::string id;
   TypeRef type;
   std::optional<Endian> endian_override;
   std::optional<Expr> size_expr;
   std::optional<std::string> enum_name;
   std::optional<std::string> encoding;
+  std::optional<Expr> if_expr;
+  RepeatKind repeat = RepeatKind::kNone;
+  std::optional<Expr> repeat_expr;
+  std::optional<Expr> switch_on;
+  std::vector<SwitchCase> switch_cases;
 };
 
 struct EnumValue {

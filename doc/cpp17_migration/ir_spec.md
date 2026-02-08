@@ -127,5 +127,5 @@ Behavior:
 ## TODO
 
 - Expand expression coverage (`if`, casts, enum refs, IO helpers) to match Scala semantics.
-- Add explicit repetition/switch/process nodes.
+- Repetition and switch metadata are now serialized on `attr` rows in the experimental text wire format (repeat kind, repeat expr, `if`, switch-on/cases).
 - Add schema version negotiation rules for forward/backward compatibility.

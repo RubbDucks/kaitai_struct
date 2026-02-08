@@ -85,6 +85,41 @@ ValidationResult PrimitiveFromString(const std::string& text, PrimitiveType* out
   return {true, ""};
 }
 
+
+
+std::string RepeatKindToString(const Attr::RepeatKind repeat) {
+  switch (repeat) {
+  case Attr::RepeatKind::kNone:
+    return "none";
+  case Attr::RepeatKind::kEos:
+    return "eos";
+  case Attr::RepeatKind::kExpr:
+    return "expr";
+  case Attr::RepeatKind::kUntil:
+    return "until";
+  }
+  return "none";
+}
+
+ValidationResult RepeatKindFromString(const std::string& text, Attr::RepeatKind* out) {
+  if (text == "none") {
+    *out = Attr::RepeatKind::kNone;
+    return {true, ""};
+  }
+  if (text == "eos") {
+    *out = Attr::RepeatKind::kEos;
+    return {true, ""};
+  }
+  if (text == "expr") {
+    *out = Attr::RepeatKind::kExpr;
+    return {true, ""};
+  }
+  if (text == "until") {
+    *out = Attr::RepeatKind::kUntil;
+    return {true, ""};
+  }
+  return {false, "invalid repeat kind: " + text};
+}
 std::string SerializeExpr(const Expr& expr) {
   std::ostringstream out;
   switch (expr.kind) {
@@ -360,6 +395,34 @@ ValidationResult Validate(const Spec& spec) {
     if (attr.encoding.has_value() && attr.type.kind == TypeRef::Kind::kPrimitive && attr.type.primitive != PrimitiveType::kStr) {
       return {false, "attr.encoding is only allowed for primitive str type"};
     }
+    if (attr.repeat == Attr::RepeatKind::kExpr && !attr.repeat_expr.has_value()) {
+      return {false, "attr.repeat_expr is required when repeat=expr"};
+    }
+    if (attr.repeat == Attr::RepeatKind::kUntil && !attr.repeat_expr.has_value()) {
+      return {false, "attr.repeat_expr is required when repeat=until"};
+    }
+    if ((attr.repeat == Attr::RepeatKind::kNone || attr.repeat == Attr::RepeatKind::kEos) &&
+        attr.repeat_expr.has_value()) {
+      return {false, "attr.repeat_expr is only allowed when repeat=expr/until"};
+    }
+    if (!attr.switch_cases.empty() && !attr.switch_on.has_value()) {
+      return {false, "attr.switch_cases requires attr.switch_on"};
+    }
+    if (attr.switch_on.has_value() && attr.switch_cases.empty()) {
+      return {false, "attr.switch_on requires at least one switch case"};
+    }
+    bool has_switch_else = false;
+    for (const auto& c : attr.switch_cases) {
+      if (!c.match_expr.has_value()) {
+        if (has_switch_else) {
+          return {false, "attr.switch_cases has duplicate switch else case"};
+        }
+        has_switch_else = true;
+      }
+      if (c.type.kind != TypeRef::Kind::kPrimitive) {
+        return {false, "switch case user-defined types are not supported in this migration slice"};
+      }
+    }
     if (attr.enum_name.has_value()) {
       if (attr.type.kind != TypeRef::Kind::kPrimitive) {
         return {false, "attr.enum_name requires primitive integer type"};
@@ -596,6 +659,35 @@ ValidationResult Deserialize(const std::string& encoded, Spec* out) {
       enum_name_text = "none";
       encoding_text = "none";
     }
+    std::string if_expr_text = "none";
+    std::string repeat_kind_text = "none";
+    std::string repeat_expr_text = "none";
+    std::string switch_on_text = "none";
+    size_t switch_case_count = 0;
+    if (row >> std::quoted(if_expr_text) >> repeat_kind_text >> std::quoted(repeat_expr_text) >>
+            std::quoted(switch_on_text) >> switch_case_count) {
+      for (size_t sc = 0; sc < switch_case_count; sc++) {
+        Attr::SwitchCase cs;
+        std::string match_expr_text;
+        if (!(row >> std::quoted(match_expr_text))) {
+          return {false, "invalid switch case row"};
+        }
+        auto cp = ParseTypeRef(&row, &cs.type);
+        if (!cp.ok) {
+          return cp;
+        }
+        if (match_expr_text != "else") {
+          ExprParser match_parser{match_expr_text};
+          Expr parsed_match;
+          auto mp = match_parser.Parse(&parsed_match);
+          if (!mp.ok) {
+            return mp;
+          }
+          cs.match_expr = parsed_match;
+        }
+        attr.switch_cases.push_back(cs);
+      }
+    }
     if (endian_text != "none") {
       Endian parsed;
       auto e = EndianFromString(endian_text, &parsed);
@@ -616,6 +708,37 @@ ValidationResult Deserialize(const std::string& encoded, Spec* out) {
     }
     if (encoding_text != "none") {
       attr.encoding = encoding_text;
+    }
+    if (if_expr_text != "none") {
+      ExprParser if_parser{if_expr_text};
+      Expr parsed_if;
+      auto ip = if_parser.Parse(&parsed_if);
+      if (!ip.ok) {
+        return ip;
+      }
+      attr.if_expr = parsed_if;
+    }
+    auto repeat_parse = RepeatKindFromString(repeat_kind_text, &attr.repeat);
+    if (!repeat_parse.ok) {
+      return repeat_parse;
+    }
+    if (repeat_expr_text != "none") {
+      ExprParser repeat_parser{repeat_expr_text};
+      Expr parsed_repeat;
+      auto rp = repeat_parser.Parse(&parsed_repeat);
+      if (!rp.ok) {
+        return rp;
+      }
+      attr.repeat_expr = parsed_repeat;
+    }
+    if (switch_on_text != "none") {
+      ExprParser switch_parser{switch_on_text};
+      Expr parsed_switch;
+      auto sp = switch_parser.Parse(&parsed_switch);
+      if (!sp.ok) {
+        return sp;
+      }
+      attr.switch_on = parsed_switch;
     }
     out->attrs.push_back(attr);
   }

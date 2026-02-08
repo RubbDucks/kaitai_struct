@@ -7,6 +7,7 @@
 #include <set>
 #include <sstream>
 #include <string>
+#include <vector>
 
 namespace kscpp::codegen {
 namespace {
@@ -76,22 +77,24 @@ std::string CppExprType(ExprType t) {
 }
 
 std::string RenderExpr(const ir::Expr& expr, const std::set<std::string>& attrs,
-                       const std::set<std::string>& instances, int parent_prec) {
+                       const std::set<std::string>& instances, int parent_prec,
+                       const std::string& repeat_item_name = "") {
   switch (expr.kind) {
   case ir::Expr::Kind::kInt:
     return std::to_string(expr.int_value);
   case ir::Expr::Kind::kBool:
     return expr.bool_value ? "true" : "false";
   case ir::Expr::Kind::kName:
+    if (!repeat_item_name.empty() && expr.text == "_") return repeat_item_name;
     if (attrs.find(expr.text) != attrs.end() || instances.find(expr.text) != instances.end()) return expr.text + "()";
     return expr.text;
   case ir::Expr::Kind::kUnary:
-    return "(" + NormalizeOp(expr.text) + RenderExpr(*expr.lhs, attrs, instances, 90) + ")";
+    return "(" + NormalizeOp(expr.text) + RenderExpr(*expr.lhs, attrs, instances, 90, repeat_item_name) + ")";
   case ir::Expr::Kind::kBinary: {
     const int prec = ExprPrecedence(expr);
     const std::string op = NormalizeOp(expr.text);
-    std::string lhs = RenderExpr(*expr.lhs, attrs, instances, prec);
-    std::string rhs = RenderExpr(*expr.rhs, attrs, instances, prec + 1);
+    std::string lhs = RenderExpr(*expr.lhs, attrs, instances, prec, repeat_item_name);
+    std::string rhs = RenderExpr(*expr.rhs, attrs, instances, prec + 1, repeat_item_name);
     if (op == "&&" || op == "||") {
       lhs = "(" + lhs + ")";
       rhs = "(" + rhs + ")";
@@ -125,6 +128,12 @@ Result ValidateSupportedSubset(const ir::Spec& spec) {
 
   for (const auto& attr : spec.attrs) {
     if (attr.type.kind != ir::TypeRef::Kind::kPrimitive) return {false, "not yet supported: user-defined attr types"};
+    if (attr.repeat == ir::Attr::RepeatKind::kUntil && attr.repeat_expr->kind == ir::Expr::Kind::kName && attr.repeat_expr->text != "_") {
+      return {false, "not yet supported: repeat-until dynamic references beyond current item"};
+    }
+    if (attr.switch_on.has_value() && attr.switch_on->kind != ir::Expr::Kind::kName) {
+      return {false, "not yet supported: switch-on dynamic expressions (only field name switch-on supported)"};
+    }
     if (attr.type.primitive != ir::PrimitiveType::kBytes && attr.type.primitive != ir::PrimitiveType::kStr && attr.size_expr.has_value()) {
       return {false, "not yet supported: size_expr for this attr type"};
     }
@@ -149,6 +158,26 @@ Result ValidateSupportedSubset(const ir::Spec& spec) {
   }
 
   for (const auto& attr : spec.attrs) {
+    if (attr.switch_on.has_value()) {
+      std::optional<ir::PrimitiveType> switch_case_type;
+      bool has_else = false;
+      for (const auto& c : attr.switch_cases) {
+        if (c.type.kind != ir::TypeRef::Kind::kPrimitive) {
+          return {false, "not yet supported: switch-on user-defined case types"};
+        }
+        if (!switch_case_type.has_value()) switch_case_type = c.type.primitive;
+        if (switch_case_type.value() != c.type.primitive) {
+          return {false, "not yet supported: switch-on cases must share one primitive type"};
+        }
+        if (c.match_expr.has_value() && c.match_expr->kind != ir::Expr::Kind::kInt && c.match_expr->kind != ir::Expr::Kind::kName) {
+          return {false, "not yet supported: malformed switch case expression kind"};
+        }
+        if (!c.match_expr.has_value()) {
+          if (has_else) return {false, "not yet supported: malformed switch cases (duplicate else)"};
+          has_else = true;
+        }
+      }
+    }
     if (attr.enum_name.has_value()) {
       bool known_enum = false;
       for (const auto& e_name : declared_enums) {
@@ -239,9 +268,23 @@ std::string EnumValueName(const std::string& name) {
 std::string CppFieldType(ir::PrimitiveType primitive);
 std::string ReadMethod(ir::PrimitiveType primitive, ir::Endian endian);
 
+std::string SwitchCaseType(const ir::Attr& attr) {
+  if (attr.switch_cases.empty()) return CppFieldType(attr.type.primitive);
+  const auto& t = attr.switch_cases.front().type;
+  if (t.kind != ir::TypeRef::Kind::kPrimitive) return "uint8_t";
+  return CppFieldType(t.primitive);
+}
+
 std::string CppAttrType(const ir::Attr& attr) {
   if (attr.enum_name.has_value()) return EnumCppTypeName(*attr.enum_name);
   return CppFieldType(attr.type.primitive);
+}
+
+std::string CppReadPrimitiveExpr(ir::PrimitiveType primitive, std::optional<ir::Endian> override_endian,
+                                 ir::Endian default_endian) {
+  if (primitive == ir::PrimitiveType::kBytes) return "m__io->read_bytes_full()";
+  if (primitive == ir::PrimitiveType::kStr) return "std::string()";
+  return "m__io->" + ReadMethod(primitive, override_endian.value_or(default_endian)) + "()";
 }
 
 std::string ReadExpr(const ir::Attr& attr, ir::Endian default_endian) {
@@ -254,11 +297,40 @@ std::string ReadExpr(const ir::Attr& attr, ir::Endian default_endian) {
     const std::string enc = attr.encoding.value_or("UTF-8");
     return "kaitai::kstream::bytes_to_str(m__io->read_bytes(" + RenderExpr(*attr.size_expr, {}, {}, -1) + "), \"" + enc + "\")";
   }
-  std::string base = "m__io->" + ReadMethod(attr.type.primitive, attr.endian_override.value_or(default_endian)) + "()";
+  std::string base = CppReadPrimitiveExpr(attr.type.primitive, attr.endian_override, default_endian);
   if (attr.enum_name.has_value()) return "static_cast<" + EnumCppTypeName(*attr.enum_name) + ">(" + base + ")";
   return base;
 }
 
+std::string ReadSwitchExpr(const ir::Attr& attr, ir::Endian default_endian,
+                           const std::set<std::string>& attrs, const std::set<std::string>& instances) {
+  const std::string on = RenderExpr(*attr.switch_on, attrs, instances, -1);
+  std::ostringstream out;
+  bool first = true;
+  for (const auto& c : attr.switch_cases) {
+    if (!c.match_expr.has_value()) continue;
+    const std::string cond = on + " == " + RenderExpr(*c.match_expr, attrs, instances, -1);
+    out << (first ? "(" : " : (") << cond << " ? "
+        << CppReadPrimitiveExpr(c.type.primitive, attr.endian_override, default_endian);
+    first = false;
+  }
+  for (const auto& c : attr.switch_cases) {
+    if (!c.match_expr.has_value()) {
+      out << (first ? "(" : " : ") << CppReadPrimitiveExpr(c.type.primitive, attr.endian_override, default_endian);
+      first = false;
+      break;
+    }
+  }
+  if (first) out << "(throw std::runtime_error(\"switch-on has no matching case\"), 0)";
+  else out << std::string(first ? "" : ")");
+  return out.str();
+}
+
+std::string CppStorageType(const ir::Attr& attr) {
+  std::string base = attr.switch_on.has_value() ? SwitchCaseType(attr) : CppAttrType(attr);
+  if (attr.repeat != ir::Attr::RepeatKind::kNone) return "std::vector<" + base + ">";
+  return base;
+}
 std::string CppFieldType(ir::PrimitiveType primitive) {
   switch (primitive) {
   case ir::PrimitiveType::kU1: return "uint8_t";
@@ -294,6 +366,13 @@ std::string ReadMethod(ir::PrimitiveType primitive, ir::Endian endian) {
   }
 }
 
+bool NeedsVectorInclude(const ir::Spec& spec) {
+  for (const auto& attr : spec.attrs) {
+    if (attr.repeat != ir::Attr::RepeatKind::kNone) return true;
+  }
+  return false;
+}
+
 bool NeedsStringInclude(const ir::Spec& spec) {
   for (const auto& attr : spec.attrs) {
     if (attr.type.kind == ir::TypeRef::Kind::kPrimitive &&
@@ -314,6 +393,7 @@ std::string RenderHeader(const ir::Spec& spec) {
   out << "#include <stdint.h>\n";
   out << "#include <memory>\n";
   if (NeedsStringInclude(spec)) out << "#include <string>\n";
+  if (NeedsVectorInclude(spec)) out << "#include <vector>\n";
   out << "\n";
   out << "#if KAITAI_STRUCT_VERSION < 11000L\n";
   out << "#error \"Incompatible Kaitai Struct C++/STL API: version 0.11 or later is required\"\n";
@@ -336,7 +416,7 @@ std::string RenderHeader(const ir::Spec& spec) {
   out << "public:\n";
   out << "    ~" << spec.name << "_t();\n";
   for (const auto& inst : spec.instances) out << "    " << CppExprType(instance_types.at(inst.id)) << " " << inst.id << "();\n";
-  for (const auto& attr : spec.attrs) out << "    " << CppAttrType(attr) << " " << attr.id << "() const { return m_" << attr.id << "; }\n";
+  for (const auto& attr : spec.attrs) out << "    const " << CppStorageType(attr) << "& " << attr.id << "() const { return m_" << attr.id << "; }\n";
   out << "    " << spec.name << "_t* _root() const { return m__root; }\n";
   out << "    kaitai::kstruct* _parent() const { return m__parent; }\n\n";
   out << "private:\n";
@@ -344,7 +424,7 @@ std::string RenderHeader(const ir::Spec& spec) {
     out << "    bool f_" << inst.id << ";\n";
     out << "    " << CppExprType(instance_types.at(inst.id)) << " m_" << inst.id << ";\n";
   }
-  for (const auto& attr : spec.attrs) out << "    " << CppAttrType(attr) << " m_" << attr.id << ";\n";
+  for (const auto& attr : spec.attrs) out << "    " << CppStorageType(attr) << " m_" << attr.id << ";\n";
   out << "    " << spec.name << "_t* m__root;\n";
   out << "    kaitai::kstruct* m__parent;\n";
   out << "};\n";
@@ -367,7 +447,37 @@ std::string RenderSource(const ir::Spec& spec) {
   out << "}\n\n";
 
   out << "void " << spec.name << "_t::_read() {\n";
-  for (const auto& attr : spec.attrs) out << "    m_" << attr.id << " = " << ReadExpr(attr, spec.default_endian) << ";\n";
+  for (const auto& attr : spec.attrs) {
+    const std::string cond = attr.if_expr.has_value() ? RenderExpr(*attr.if_expr, attr_names, {}, -1) : "true";
+    out << "    if (" << cond << ") {\n";
+    if (attr.repeat == ir::Attr::RepeatKind::kNone) {
+      if (attr.switch_on.has_value()) {
+        out << "        m_" << attr.id << " = " << ReadSwitchExpr(attr, spec.default_endian, attr_names, {}) << ";\n";
+      } else {
+        out << "        m_" << attr.id << " = " << ReadExpr(attr, spec.default_endian) << ";\n";
+      }
+    } else if (attr.repeat == ir::Attr::RepeatKind::kEos) {
+      out << "        while (!m__io->is_eof()) {\n";
+      if (attr.switch_on.has_value()) out << "            m_" << attr.id << ".push_back(" << ReadSwitchExpr(attr, spec.default_endian, attr_names, {}) << ");\n";
+      else out << "            m_" << attr.id << ".push_back(" << ReadExpr(attr, spec.default_endian) << ");\n";
+      out << "        }\n";
+    } else if (attr.repeat == ir::Attr::RepeatKind::kExpr) {
+      out << "        for (int i = 0; i < " << RenderExpr(*attr.repeat_expr, attr_names, {}, -1) << "; i++) {\n";
+      if (attr.switch_on.has_value()) out << "            m_" << attr.id << ".push_back(" << ReadSwitchExpr(attr, spec.default_endian, attr_names, {}) << ");\n";
+      else out << "            m_" << attr.id << ".push_back(" << ReadExpr(attr, spec.default_endian) << ");\n";
+      out << "        }\n";
+    } else {
+      out << "        do {\n";
+      if (attr.switch_on.has_value()) {
+        out << "            auto repeat_item = " << ReadSwitchExpr(attr, spec.default_endian, attr_names, {}) << ";\n";
+      } else {
+        out << "            auto repeat_item = " << ReadExpr(attr, spec.default_endian) << ";\n";
+      }
+      out << "            m_" << attr.id << ".push_back(repeat_item);\n";
+      out << "        } while (!(" << RenderExpr(*attr.repeat_expr, attr_names, {}, -1, "repeat_item") << "));\n";
+    }
+    out << "    }\n";
+  }
   out << "}\n\n";
 
   out << spec.name << "_t::~" << spec.name << "_t() {\n";
