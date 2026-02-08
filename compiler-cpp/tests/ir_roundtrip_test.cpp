@@ -37,6 +37,20 @@ int main() {
         kscpp::ir::Expr::Binary("+", kscpp::ir::Expr::Name("len"), kscpp::ir::Expr::Int(4));
     spec.attrs.push_back(attr);
 
+    kscpp::ir::Attr title;
+    title.id = "title";
+    title.type.kind = kscpp::ir::TypeRef::Kind::kPrimitive;
+    title.type.primitive = kscpp::ir::PrimitiveType::kStr;
+    title.size_expr = kscpp::ir::Expr::Int(8);
+    title.encoding = "UTF-8";
+    spec.attrs.push_back(title);
+
+    kscpp::ir::EnumDef enum_def;
+    enum_def.name = "packet_kind";
+    enum_def.values.push_back({1, "request"});
+    enum_def.values.push_back({2, "response"});
+    spec.enums.push_back(enum_def);
+
     kscpp::ir::Instance inst;
     inst.id = "checksum_ok";
     inst.value_expr = kscpp::ir::Expr::Unary("!", kscpp::ir::Expr::Name("bad_checksum"));
@@ -56,6 +70,11 @@ int main() {
     kscpp::ir::Spec decoded;
     auto parse = kscpp::ir::Deserialize(encoded, &decoded);
     ok &= Check(parse.ok, "serialized IR can be parsed");
+
+    ok &= Check(decoded.enums.size() == 1, "enum definitions survive round-trip");
+    ok &= Check(decoded.attrs.size() == 2, "attrs survive round-trip");
+    ok &= Check(decoded.attrs[1].encoding.has_value() && *decoded.attrs[1].encoding == "UTF-8",
+                "string encoding survives round-trip");
 
     std::string reencoded = kscpp::ir::Serialize(decoded);
     ok &= Check(encoded == reencoded, "IR round-trip is stable");

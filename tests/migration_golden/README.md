@@ -23,3 +23,9 @@ Compare Scala vs experimental C++17 (IR-driven) for expression subset A fixture:
 ```bash
 tests/migration_golden/compare_cpp17_expr_subset_a.sh
 ```
+
+Type-focused parity checks for integer/float/bytes/string/enum subset:
+
+```bash
+tests/migration_golden/compare_cpp17_type_subset.sh
+```

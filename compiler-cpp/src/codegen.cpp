@@ -6,9 +6,12 @@
 #include <map>
 #include <set>
 #include <sstream>
+#include <string>
 
 namespace kscpp::codegen {
 namespace {
+
+bool EnumNameMatches(const std::string& declared, const std::string& ref);
 
 enum class ExprType {
   kInt8,
@@ -121,15 +124,46 @@ Result ValidateSupportedSubset(const ir::Spec& spec) {
   if (!spec.validations.empty()) return {false, "not yet supported: validations in IR"};
 
   for (const auto& attr : spec.attrs) {
-    if (attr.endian_override.has_value()) return {false, "not yet supported: attr.endian_override"};
-    if (attr.size_expr.has_value()) return {false, "not yet supported: sized attrs via attr.size_expr"};
     if (attr.type.kind != ir::TypeRef::Kind::kPrimitive) return {false, "not yet supported: user-defined attr types"};
+    if (attr.type.primitive != ir::PrimitiveType::kBytes && attr.type.primitive != ir::PrimitiveType::kStr && attr.size_expr.has_value()) {
+      return {false, "not yet supported: size_expr for this attr type"};
+    }
+    if (attr.encoding.has_value() && attr.type.primitive != ir::PrimitiveType::kStr) {
+      return {false, "not yet supported: encoding outside str attrs"};
+    }
     switch (attr.type.primitive) {
     case ir::PrimitiveType::kU1: case ir::PrimitiveType::kU2: case ir::PrimitiveType::kU4: case ir::PrimitiveType::kU8:
     case ir::PrimitiveType::kS1: case ir::PrimitiveType::kS2: case ir::PrimitiveType::kS4: case ir::PrimitiveType::kS8:
+    case ir::PrimitiveType::kF4: case ir::PrimitiveType::kF8: case ir::PrimitiveType::kBytes: case ir::PrimitiveType::kStr:
       break;
     default:
       return {false, "not yet supported: primitive attr type in this migration slice"};
+    }
+  }
+
+
+  std::vector<std::string> declared_enums;
+  for (const auto& e : spec.enums) {
+    if (e.name.empty()) return {false, "not yet supported: empty enum name"};
+    declared_enums.push_back(e.name);
+  }
+
+  for (const auto& attr : spec.attrs) {
+    if (attr.enum_name.has_value()) {
+      bool known_enum = false;
+      for (const auto& e_name : declared_enums) {
+        if (EnumNameMatches(e_name, *attr.enum_name)) { known_enum = true; break; }
+      }
+      if (!known_enum) {
+        return {false, "not yet supported: attr.enum_name references unknown enum"};
+      }
+      switch (attr.type.primitive) {
+      case ir::PrimitiveType::kU1: case ir::PrimitiveType::kU2: case ir::PrimitiveType::kU4: case ir::PrimitiveType::kU8:
+      case ir::PrimitiveType::kS1: case ir::PrimitiveType::kS2: case ir::PrimitiveType::kS4: case ir::PrimitiveType::kS8:
+        break;
+      default:
+        return {false, "not yet supported: enum attrs must be integer-backed"};
+      }
     }
   }
 
@@ -166,6 +200,65 @@ Result ValidateSupportedSubset(const ir::Spec& spec) {
   return {true, ""};
 }
 
+bool EnumNameMatches(const std::string& declared, const std::string& ref) {
+  if (declared == ref) return true;
+  if (declared.size() > ref.size() && declared.compare(declared.size() - ref.size(), ref.size(), ref) == 0 && declared[declared.size() - ref.size() - 1] == ':') return true;
+  return false;
+}
+
+std::string EnumCppTypeName(const std::string& enum_name) {
+  const auto pos = enum_name.rfind("::");
+  const std::string base = (pos == std::string::npos) ? enum_name : enum_name.substr(pos + 2);
+  std::string out;
+  out.reserve(base.size() + 2);
+  for (char c : base) {
+    if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')) {
+      out.push_back(c);
+    } else {
+      out.push_back('_');
+    }
+  }
+  if (out.empty() || (out[0] >= '0' && out[0] <= '9')) out.insert(out.begin(), '_');
+  return out + "_e";
+}
+
+std::string EnumValueName(const std::string& name) {
+  std::string out;
+  out.reserve(name.size() + 1);
+  for (char c : name) {
+    if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')) {
+      out.push_back(c);
+    } else {
+      out.push_back('_');
+    }
+  }
+  if (out.empty() || (out[0] >= '0' && out[0] <= '9')) out.insert(out.begin(), '_');
+  return out;
+}
+
+std::string CppFieldType(ir::PrimitiveType primitive);
+std::string ReadMethod(ir::PrimitiveType primitive, ir::Endian endian);
+
+std::string CppAttrType(const ir::Attr& attr) {
+  if (attr.enum_name.has_value()) return EnumCppTypeName(*attr.enum_name);
+  return CppFieldType(attr.type.primitive);
+}
+
+std::string ReadExpr(const ir::Attr& attr, ir::Endian default_endian) {
+  if (attr.type.primitive == ir::PrimitiveType::kBytes) {
+    if (attr.size_expr.has_value()) return "m__io->read_bytes(" + RenderExpr(*attr.size_expr, {}, {}, -1) + ")";
+    return "m__io->read_bytes_full()";
+  }
+  if (attr.type.primitive == ir::PrimitiveType::kStr) {
+    if (!attr.size_expr.has_value()) return "std::string()";
+    const std::string enc = attr.encoding.value_or("UTF-8");
+    return "kaitai::kstream::bytes_to_str(m__io->read_bytes(" + RenderExpr(*attr.size_expr, {}, {}, -1) + "), \"" + enc + "\")";
+  }
+  std::string base = "m__io->" + ReadMethod(attr.type.primitive, attr.endian_override.value_or(default_endian)) + "()";
+  if (attr.enum_name.has_value()) return "static_cast<" + EnumCppTypeName(*attr.enum_name) + ">(" + base + ")";
+  return base;
+}
+
 std::string CppFieldType(ir::PrimitiveType primitive) {
   switch (primitive) {
   case ir::PrimitiveType::kU1: return "uint8_t";
@@ -176,6 +269,10 @@ std::string CppFieldType(ir::PrimitiveType primitive) {
   case ir::PrimitiveType::kS2: return "int16_t";
   case ir::PrimitiveType::kS4: return "int32_t";
   case ir::PrimitiveType::kS8: return "int64_t";
+  case ir::PrimitiveType::kF4: return "float";
+  case ir::PrimitiveType::kF8: return "double";
+  case ir::PrimitiveType::kStr: return "std::string";
+  case ir::PrimitiveType::kBytes: return "std::string";
   default: return "uint8_t";
   }
 }
@@ -191,8 +288,20 @@ std::string ReadMethod(ir::PrimitiveType primitive, ir::Endian endian) {
   case ir::PrimitiveType::kS2: return be ? "read_s2be" : "read_s2le";
   case ir::PrimitiveType::kS4: return be ? "read_s4be" : "read_s4le";
   case ir::PrimitiveType::kS8: return be ? "read_s8be" : "read_s8le";
+  case ir::PrimitiveType::kF4: return be ? "read_f4be" : "read_f4le";
+  case ir::PrimitiveType::kF8: return be ? "read_f8be" : "read_f8le";
   default: return "read_u1";
   }
+}
+
+bool NeedsStringInclude(const ir::Spec& spec) {
+  for (const auto& attr : spec.attrs) {
+    if (attr.type.kind == ir::TypeRef::Kind::kPrimitive &&
+        (attr.type.primitive == ir::PrimitiveType::kStr || attr.type.primitive == ir::PrimitiveType::kBytes)) {
+      return true;
+    }
+  }
+  return false;
 }
 
 std::string RenderHeader(const ir::Spec& spec) {
@@ -203,10 +312,21 @@ std::string RenderHeader(const ir::Spec& spec) {
   out << "class " << spec.name << "_t;\n\n";
   out << "#include \"kaitai/kaitaistruct.h\"\n";
   out << "#include <stdint.h>\n";
-  out << "#include <memory>\n\n";
+  out << "#include <memory>\n";
+  if (NeedsStringInclude(spec)) out << "#include <string>\n";
+  out << "\n";
   out << "#if KAITAI_STRUCT_VERSION < 11000L\n";
   out << "#error \"Incompatible Kaitai Struct C++/STL API: version 0.11 or later is required\"\n";
   out << "#endif\n\n";
+  for (const auto& e : spec.enums) {
+    out << "enum class " << EnumCppTypeName(e.name) << " {\n";
+    for (size_t i = 0; i < e.values.size(); i++) {
+      const auto& v = e.values[i];
+      out << "    " << EnumValueName(v.name) << " = " << v.value;
+      out << (i + 1 == e.values.size() ? "\n" : ",\n");
+    }
+    out << "};\n\n";
+  }
   out << "class " << spec.name << "_t : public kaitai::kstruct {\n\n";
   out << "public:\n\n";
   out << "    " << spec.name << "_t(kaitai::kstream* p__io, kaitai::kstruct* p__parent = nullptr, " << spec.name << "_t* p__root = nullptr);\n\n";
@@ -216,7 +336,7 @@ std::string RenderHeader(const ir::Spec& spec) {
   out << "public:\n";
   out << "    ~" << spec.name << "_t();\n";
   for (const auto& inst : spec.instances) out << "    " << CppExprType(instance_types.at(inst.id)) << " " << inst.id << "();\n";
-  for (const auto& attr : spec.attrs) out << "    " << CppFieldType(attr.type.primitive) << " " << attr.id << "() const { return m_" << attr.id << "; }\n";
+  for (const auto& attr : spec.attrs) out << "    " << CppAttrType(attr) << " " << attr.id << "() const { return m_" << attr.id << "; }\n";
   out << "    " << spec.name << "_t* _root() const { return m__root; }\n";
   out << "    kaitai::kstruct* _parent() const { return m__parent; }\n\n";
   out << "private:\n";
@@ -224,7 +344,7 @@ std::string RenderHeader(const ir::Spec& spec) {
     out << "    bool f_" << inst.id << ";\n";
     out << "    " << CppExprType(instance_types.at(inst.id)) << " m_" << inst.id << ";\n";
   }
-  for (const auto& attr : spec.attrs) out << "    " << CppFieldType(attr.type.primitive) << " m_" << attr.id << ";\n";
+  for (const auto& attr : spec.attrs) out << "    " << CppAttrType(attr) << " m_" << attr.id << ";\n";
   out << "    " << spec.name << "_t* m__root;\n";
   out << "    kaitai::kstruct* m__parent;\n";
   out << "};\n";
@@ -247,7 +367,7 @@ std::string RenderSource(const ir::Spec& spec) {
   out << "}\n\n";
 
   out << "void " << spec.name << "_t::_read() {\n";
-  for (const auto& attr : spec.attrs) out << "    m_" << attr.id << " = m__io->" << ReadMethod(attr.type.primitive, spec.default_endian) << "();\n";
+  for (const auto& attr : spec.attrs) out << "    m_" << attr.id << " = " << ReadExpr(attr, spec.default_endian) << ";\n";
   out << "}\n\n";
 
   out << spec.name << "_t::~" << spec.name << "_t() {\n";

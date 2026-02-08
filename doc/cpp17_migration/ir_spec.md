@@ -41,6 +41,8 @@ Each attribute includes:
 - `type` (**required**)
 - `endian_override` (optional, `le`/`be`), overriding spec default when present
 - `size_expr` (optional expression), mapping to `size`-style KS constraints
+- `enum_name` (optional), for integer attrs that map to named enums
+- `encoding` (optional), for `str` attrs when encoding is known
 
 ### Expressions (`Expr`)
 
@@ -60,6 +62,11 @@ Expression text form is prefix S-expression:
 - `(un "!" (name "bad"))`
 - `(bin "+" (name "len") (int 4))`
 
+### Enums (`EnumDef`)
+
+- `name` (**required**)
+- `values`: ordered `(value, name)` entries
+
 ### Instances (`Instance`)
 
 - `id` (**required**)
@@ -76,7 +83,7 @@ Expression text form is prefix S-expression:
 Current round-trip format is a deterministic line-based encoding:
 
 - starts with `KSIR1`
-- section counts for `types`, `attrs`, `instances`, `validations`
+- section counts for `types`, `attrs`, `enums`, `instances`, `validations`
 - quoted strings for names/messages and expression payloads
 - ends with `end`
 

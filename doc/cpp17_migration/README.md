@@ -49,6 +49,20 @@ This directory tracks the staged migration plan for introducing a C++17 implemen
 
 > **Explicit policy:** Scala remains the default and required compiler implementation throughout this migration until a later, explicit flip commit is approved.
 
+
+## C++17 backend migration matrix (current experimental slice)
+
+| Feature area | Scala path | C++17 path (opt-in) |
+|---|---|---|
+| Integer attrs (`u1..u8`, `s1..s8`) | Implemented | Implemented |
+| Float attrs (`f4`, `f8`) | Implemented | Implemented |
+| Bytes attrs (`bytes`, `size`/EOS) | Implemented | Implemented (subset) |
+| String attrs (`str`, explicit `encoding`) | Implemented | Implemented (size + encoding subset) |
+| Enum emission / enum-typed integer attrs | Implemented | Implemented (subset fixtures) |
+| User types / `types` section | Implemented | Missing |
+| Validations | Implemented | Missing |
+| Advanced control flow (`switch-on`, repeats, process, etc.) | Implemented | Missing |
+
 ## Phased rollout policy
 
 1. **Scaffolding (current):** documentation, risk tracking, ADRs, and opt-in policy definition.

@@ -72,6 +72,18 @@ struct Attr {
   TypeRef type;
   std::optional<Endian> endian_override;
   std::optional<Expr> size_expr;
+  std::optional<std::string> enum_name;
+  std::optional<std::string> encoding;
+};
+
+struct EnumValue {
+  long long value = 0;
+  std::string name;
+};
+
+struct EnumDef {
+  std::string name;
+  std::vector<EnumValue> values;
 };
 
 struct Instance {
@@ -90,6 +102,7 @@ struct Spec {
   Endian default_endian = Endian::kLe;
   std::vector<TypeDef> types;
   std::vector<Attr> attrs;
+  std::vector<EnumDef> enums;
   std::vector<Instance> instances;
   std::vector<Validation> validations;
 };

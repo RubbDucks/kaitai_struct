@@ -62,9 +62,10 @@ Expected behavior in this phase:
 
 This commit keeps Scala as the default path and adds an **opt-in** C++17 backend slice for a minimal subset:
 
-- supported: root `seq` attrs with primitive integer fields (`u1/u2/u4/u8/s1/s2/s4/s8`)
+- supported: root `seq` attrs with primitive integer + float fields (`u1/u2/u4/u8/s1/s2/s4/s8/f4/f8`)
+- supported: byte arrays (`bytes`, sized and EOS), strings (`str` with `size` and `encoding` when present in IR), and enum-typed integer attrs (subset)
 - supported: expression subset A for `instances` (`int`/`bool` literals, arithmetic ops, boolean ops, and basic references to attrs/earlier instances)
-- unsupported (explicit diagnostic): `types`, `validations`, user types, sized attrs, and non-integer primitives
+- unsupported (explicit diagnostic): `types`, `validations`, user types, and advanced string/enum semantics outside this subset
 
 Example:
 
@@ -95,4 +96,11 @@ Parity check for expression subset A (Scala vs C++17 IR backend):
 
 ```sh
 tests/migration_golden/compare_cpp17_expr_subset_a.sh
+```
+
+
+Parity check for type-focused subset (ints/floats/bytes/str/enum):
+
+```sh
+tests/migration_golden/compare_cpp17_type_subset.sh
 ```
