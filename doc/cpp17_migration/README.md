@@ -94,3 +94,4 @@ This keeps Scala as the source of truth where C++17 coverage is intentionally in
 - `output_contract.md` for language-agnostic normalized golden-output comparison rules and Scala baseline workflow.
 - `ir_spec.md` for the shared migration IR boundary and invariants used by Scala/C++ interop work.
 - `building_cpp.md` for configuring and validating the standalone experimental C++17 compiler skeleton.
+- `benchmark_trends.md` for fixed-corpus benchmark harness, metric schema, and baseline thresholds for Scala-vs-C++17 stability confidence.

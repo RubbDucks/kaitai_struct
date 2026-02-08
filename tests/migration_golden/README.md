@@ -53,6 +53,21 @@ tests/migration_golden/run_cpp17_differential.py \
   --output-dir tests/test_out/migration_differential
 ```
 
+Run migration benchmark harness (fixed corpus, latency + memory metrics, schema-checked report):
+
+```bash
+tests/migration_golden/run_cpp17_benchmarks.py \
+  --fixtures tests/migration_golden/benchmark_fixtures.tsv \
+  --output-dir tests/test_out/migration_benchmarks
+```
+
+Validate benchmark report schema only:
+
+```bash
+tests/migration_golden/run_cpp17_benchmarks.py \
+  --check-schema tests/test_out/migration_benchmarks/report.json
+```
+
 Artifacts are emitted under the output directory:
 
 Differential inventory columns:
