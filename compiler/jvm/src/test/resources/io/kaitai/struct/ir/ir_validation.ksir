@@ -3,8 +3,9 @@ name "ir_validation"
 default_endian be
 types 0
 attrs 2
-attr "a" primitive "u1" none "none"
-attr "b" primitive "u1" none "none"
+attr "a" primitive "u1" none "none" "none" "none" "none" "none" none "none" "none" 0
+attr "b" primitive "u1" none "none" "none" "none" "none" "none" none "none" "none" 0
+enums 0
 instances 1
 instance "is_big" "(bin \">=\" (name \"a\") (int 4))"
 validations 2

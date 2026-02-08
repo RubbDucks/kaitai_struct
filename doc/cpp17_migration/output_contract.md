@@ -72,12 +72,7 @@ This script performs:
 4. Normalize into `tests/migration_golden/scala/*.snapshot`.
 5. Recompute `tests/migration_golden/scala/SHA256SUMS`.
 
-## TODO (next commit scope)
-
-- Add a comparator script that runs the C++17 compiler path with the same fixture inventory and diffs against `tests/migration_golden/scala/`.
-
-
-## C++17 migration golden comparator (first backend slice)
+## C++17 migration golden comparators (experimental backend slices)
 
 The first backend slice adds a focused comparator for `hello_world`-like specs:
 
@@ -88,3 +83,10 @@ tests/migration_golden/compare_cpp17_from_ir.sh
 It compiles `tests/formats/hello_world.ksy` via Scala (`cpp_stl` + `--cpp-standard 17`) and compares normalized output against C++17 IR-driven generation from `compiler-cpp/tests/data/hello_world_minimal.ksir`.
 
 This check is opt-in and migration-scoped; it does not alter default Scala compiler/test wiring.
+
+
+Advanced semantics subset comparator (instances + validations + process xor const):
+
+```sh
+tests/migration_golden/compare_cpp17_advanced_semantics.sh
+```

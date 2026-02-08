@@ -35,3 +35,10 @@ Import graph migration checks (nested imports + cycle/collision diagnostics):
 ```bash
 tests/migration_golden/compare_cpp17_imports.sh
 ```
+
+
+Advanced semantics migration checks (instances + validations + process xor const subset):
+
+```bash
+tests/migration_golden/compare_cpp17_advanced_semantics.sh
+```

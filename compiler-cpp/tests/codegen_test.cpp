@@ -251,12 +251,41 @@ int main() {
                 "dynamic switch rejection is diagnosable");
   }
   {
+    kscpp::ir::Spec spec;
+    auto parsed = kscpp::ir::LoadFromFile("../tests/data/advanced_semantics_subset.ksir", &spec);
+    ok &= Check(parsed.ok, "advanced semantics fixture parses");
+
+    kscpp::CliOptions options;
+    const std::filesystem::path out = std::filesystem::temp_directory_path() / "kscpp_codegen_advanced_semantics";
+    std::filesystem::remove_all(out);
+    options.out_dir = out.string();
+    options.targets = {"cpp_stl"};
+    options.runtime.cpp_standard = "17";
+
+    auto r = kscpp::codegen::EmitCppStl17FromIr(spec, options);
+    ok &= Check(r.ok, "advanced semantics subset codegen succeeds");
+
+    const std::string h = ReadAll(out / "advanced_semantics_subset.h");
+    const std::string c = ReadAll(out / "advanced_semantics_subset.cpp");
+    ok &= Check(h.find("payload_len();") != std::string::npos && h.find("is_flag_one();") != std::string::npos,
+                "instance accessors emitted for advanced fixture");
+    ok &= Check(c.find("process_xor_one") != std::string::npos,
+                "process xor const emitted");
+    ok &= Check(c.find("validation_expr_error<uint8_t>") != std::string::npos,
+                "attr validation emitted as validation_expr_error");
+    ok &= Check(c.find("validation_expr_error<bool>") != std::string::npos,
+                "instance validation emitted as validation_expr_error");
+    ok &= Check(c.find("/valid/len") != std::string::npos && c.find("/valid/is_flag_one") != std::string::npos,
+                "validation source paths are emitted");
+  }
+
+  {
     kscpp::ir::Spec unsupported;
     unsupported.name = "unsupported";
     unsupported.default_endian = kscpp::ir::Endian::kLe;
 
     kscpp::ir::Validation validation;
-    validation.target = "one";
+    validation.target = "missing";
     validation.condition_expr = kscpp::ir::Expr::Bool(true);
     validation.message = "todo";
     unsupported.validations.push_back(validation);
@@ -265,9 +294,9 @@ int main() {
     options.out_dir = (std::filesystem::temp_directory_path() / "kscpp_codegen_test_unsupported").string();
 
     auto r = kscpp::codegen::EmitCppStl17FromIr(unsupported, options);
-    ok &= Check(!r.ok, "unsupported subset fails");
-    ok &= Check(r.error.find("not yet supported") != std::string::npos,
-                "unsupported subset has explicit diagnostic");
+    ok &= Check(!r.ok, "unsupported validation target fails");
+    ok &= Check(r.error.find("validation target outside attrs/instances") != std::string::npos,
+                "unsupported validation target has explicit diagnostic");
   }
 
   return ok ? 0 : 1;

@@ -121,6 +121,29 @@ ValidationResult RepeatKindFromString(const std::string& text, Attr::RepeatKind*
   }
   return {false, "invalid repeat kind: " + text};
 }
+
+std::string ProcessToString(const Attr::Process& process) {
+  switch (process.kind) {
+  case Attr::Process::Kind::kXorConst:
+    return "xor_const:" + std::to_string(process.xor_const);
+  }
+  return "none";
+}
+
+ValidationResult ProcessFromString(const std::string& text, Attr::Process* out) {
+  if (text.rfind("xor_const:", 0) == 0) {
+    const std::string payload = text.substr(std::string("xor_const:").size());
+    try {
+      out->kind = Attr::Process::Kind::kXorConst;
+      out->xor_const = std::stoi(payload);
+      if (out->xor_const < 0 || out->xor_const > 255) return {false, "invalid xor_const process key: " + payload};
+      return {true, ""};
+    } catch (...) {
+      return {false, "invalid xor_const process key: " + payload};
+    }
+  }
+  return {false, "invalid process: " + text};
+}
 std::string SerializeExpr(const Expr& expr) {
   std::ostringstream out;
   switch (expr.kind) {
@@ -582,6 +605,7 @@ std::string Serialize(const Spec& spec) {
     }
     out << " " << std::quoted(a.enum_name.value_or("none"));
     out << " " << std::quoted(a.encoding.value_or("none"));
+    out << " " << std::quoted(a.process.has_value() ? ProcessToString(*a.process) : std::string("none"));
     out << "\n";
   }
 
@@ -727,6 +751,7 @@ ValidationResult Deserialize(const std::string& encoded, Spec* out, bool validat
     if (!(row >> endian_text >> std::quoted(size_expr_text))) {
       return {false, "invalid attr row suffix"};
     }
+    std::string process_text = "none";
     if (!(row >> std::quoted(enum_name_text) >> std::quoted(encoding_text))) {
       enum_name_text = "none";
       encoding_text = "none";
@@ -736,15 +761,50 @@ ValidationResult Deserialize(const std::string& encoded, Spec* out, bool validat
     std::string repeat_expr_text = "none";
     std::string switch_on_text = "none";
     size_t switch_case_count = 0;
-    if (row >> std::quoted(if_expr_text) >> repeat_kind_text >> std::quoted(repeat_expr_text) >>
-            std::quoted(switch_on_text) >> switch_case_count) {
+
+    std::string suffix;
+    std::getline(row, suffix);
+    std::istringstream suffix_new(suffix);
+    bool parsed_suffix = false;
+    bool has_process_column = false;
+    if (suffix_new >> std::quoted(process_text) >> std::quoted(if_expr_text) >> repeat_kind_text >>
+            std::quoted(repeat_expr_text) >> std::quoted(switch_on_text) >> switch_case_count) {
+      parsed_suffix = true;
+      has_process_column = true;
+    } else {
+      process_text = "none";
+      if_expr_text = "none";
+      repeat_kind_text = "none";
+      repeat_expr_text = "none";
+      switch_on_text = "none";
+      switch_case_count = 0;
+      std::istringstream suffix_old(suffix);
+      if (suffix_old >> std::quoted(if_expr_text) >> repeat_kind_text >> std::quoted(repeat_expr_text) >>
+              std::quoted(switch_on_text) >> switch_case_count) {
+        parsed_suffix = true;
+        has_process_column = false;
+      }
+    }
+    if (parsed_suffix) {
+      if (!(process_text == "none" || process_text.rfind("xor_const:", 0) == 0)) {
+        return {false, "invalid process: " + process_text};
+      }
+      std::istringstream switch_reader(suffix);
+      if (!has_process_column) {
+        switch_reader >> std::quoted(if_expr_text) >> repeat_kind_text >> std::quoted(repeat_expr_text) >>
+            std::quoted(switch_on_text) >> switch_case_count;
+      } else {
+        std::string parsed_process;
+        switch_reader >> std::quoted(parsed_process) >> std::quoted(if_expr_text) >> repeat_kind_text >>
+            std::quoted(repeat_expr_text) >> std::quoted(switch_on_text) >> switch_case_count;
+      }
       for (size_t sc = 0; sc < switch_case_count; sc++) {
         Attr::SwitchCase cs;
         std::string match_expr_text;
-        if (!(row >> std::quoted(match_expr_text))) {
+        if (!(switch_reader >> std::quoted(match_expr_text))) {
           return {false, "invalid switch case row"};
         }
-        auto cp = ParseTypeRef(&row, &cs.type);
+        auto cp = ParseTypeRef(&switch_reader, &cs.type);
         if (!cp.ok) {
           return cp;
         }
@@ -780,6 +840,14 @@ ValidationResult Deserialize(const std::string& encoded, Spec* out, bool validat
     }
     if (encoding_text != "none") {
       attr.encoding = encoding_text;
+    }
+    if (process_text != "none") {
+      Attr::Process process;
+      auto process_parse = ProcessFromString(process_text, &process);
+      if (!process_parse.ok) {
+        return process_parse;
+      }
+      attr.process = process;
     }
     if (if_expr_text != "none") {
       ExprParser if_parser{if_expr_text};

@@ -1,0 +1,11 @@
+KSIR1
+name "invalid_validation_target"
+default_endian le
+types 0
+attrs 1
+attr "one" primitive "u1" none "none" "none" "none" "none" none "none" "none" 0
+enums 0
+instances 0
+validations 1
+validation "missing" "(bool true)" "todo"
+end
