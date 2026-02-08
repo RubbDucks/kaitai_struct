@@ -1,0 +1,6 @@
+# id	category	mode	ksy	compiler_target
+hello_world	primitives	success	tests/formats/hello_world.ksy	cpp_stl_17
+default_big_endian	primitives	success	tests/formats/default_big_endian.ksy	cpp_stl_17
+repeat_n_bytes	repeats	success	tests/formats/repeat_n_bytes.ksy	cpp_stl_17
+process_xor_const	process	success	tests/formats/process_xor_const.ksy	cpp_stl_17
+instance_std	instances	success	tests/formats/instance_std.ksy	cpp_stl_17

@@ -89,6 +89,11 @@ jobs:
           cd tests
           ./build-formats
 
+      - name: migration differential (informational)
+        run: |
+          ./tests/ci-cpp17-differential
+        continue-on-error: true
+
       - name: publish formats to ci_targets
         env:
           BOT_SSH_KEY: ${{secrets.BOT_SSH_KEY}}
