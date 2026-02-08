@@ -1,0 +1,10 @@
+KSIR1
+name "invalid_switch_duplicate_else"
+default_endian le
+types 0
+attrs 1
+attr "tagged" primitive "u1" none "none" "none" "none" "none" none "none" "(name \"tag\")" 2 "else" primitive "u1" "else" primitive "u2"
+enums 0
+instances 0
+validations 0
+end

@@ -21,10 +21,16 @@ object MigrationIr {
 
     out.append(s"attrs ${spec.seq.size}\n")
     spec.seq.foreach { attr =>
-      val (typ, endianOverride, sizeExpr, enumName, encoding) = attrToIr(attr)
+      val (typ, endianOverride, sizeExpr, enumName, encoding, ifExpr, repeatKind, repeatExpr, switchOn, switchCases) = attrToIr(attr)
       val endStr = endianOverride.map(e => endianToIr(Some(e))).getOrElse("none")
       val sizeStr = sizeExpr.map(exprToIr).getOrElse("none")
-      out.append(s"attr ${quote(attr.id.humanReadable)} ${renderTypeRef(typ)} $endStr ${quote(sizeStr)} ${quote(enumName.getOrElse("none"))} ${quote(encoding.getOrElse("none"))}\n")
+      val ifStr = ifExpr.map(exprToIr).getOrElse("none")
+      val repeatExprStr = repeatExpr.map(exprToIr).getOrElse("none")
+      val switchOnStr = switchOn.map(exprToIr).getOrElse("none")
+      val switchCasesStr = switchCases.map { case (onExpr, tpe) =>
+        s" ${quote(onExpr.map(exprToIr).getOrElse("else"))} ${renderTypeRef(tpe)}"
+      }.mkString("")
+      out.append(s"attr ${quote(attr.id.humanReadable)} ${renderTypeRef(typ)} $endStr ${quote(sizeStr)} ${quote(enumName.getOrElse("none"))} ${quote(encoding.getOrElse("none"))} ${quote(ifStr)} $repeatKind ${quote(repeatExprStr)} ${quote(switchOnStr)} ${switchCases.size}$switchCasesStr\n")
     }
 
     val enums = collectEnums(spec)
@@ -81,7 +87,7 @@ object MigrationIr {
     case None => "le"
   }
 
-  private def attrToIr(attr: AttrSpec): (TypeRef, Option[FixedEndian], Option[Ast.expr], Option[String], Option[String]) = {
+  private def attrToIr(attr: AttrSpec): (TypeRef, Option[FixedEndian], Option[Ast.expr], Option[String], Option[String], Option[Ast.expr], String, Option[Ast.expr], Option[Ast.expr], Seq[(Option[Ast.expr], TypeRef)]) = {
     val t = attr.dataType
     val endianOverride = t match {
       case IntMultiType(_, _, e) => e
@@ -104,7 +110,22 @@ object MigrationIr {
       case StrzType(_, Some(enc)) => Some(enc)
       case _ => None
     }
-    (typeRefFromDataType(t), endianOverride, sizeExpr, enumName, encoding)
+    val (switchOn, switchCases) = t match {
+      case sw: SwitchType =>
+        val cases = sw.cases.toSeq.map { case (k, v) =>
+          val keyExpr = if (k == SwitchType.ELSE_CONST) None else Some(k)
+          (keyExpr, typeRefFromDataType(v))
+        }
+        (Some(sw.on), cases)
+      case _ => (None, Seq.empty)
+    }
+    val (repeatKind, repeatExpr) = attr.cond.repeat match {
+      case RepeatExpr(expr) => ("expr", Some(expr))
+      case RepeatUntil(expr) => ("until", Some(expr))
+      case RepeatEos => ("eos", None)
+      case NoRepeat => ("none", None)
+    }
+    (typeRefFromDataType(t), endianOverride, sizeExpr, enumName, encoding, attr.cond.ifExpr, repeatKind, repeatExpr, switchOn, switchCases)
   }
 
   private def collectEnums(spec: ClassSpec): Seq[EnumRow] = {

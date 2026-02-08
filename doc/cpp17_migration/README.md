@@ -61,7 +61,7 @@ This directory tracks the staged migration plan for introducing a C++17 implemen
 | Enum emission / enum-typed integer attrs | Implemented | Implemented (subset fixtures) |
 | User types / `types` section | Implemented | Missing |
 | Validations | Implemented | Missing |
-| Advanced control flow (`switch-on`, repeats, process, etc.) | Implemented | Missing |
+| Advanced control flow (`switch-on`, repeats, process, etc.) | Implemented | Partial (`repeat-*`, `if`, primitive `switch-on` subset) |
 
 ## Phased rollout policy
 

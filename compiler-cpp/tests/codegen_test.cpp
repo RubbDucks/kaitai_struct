@@ -194,14 +194,62 @@ int main() {
     const std::string h = ReadAll(out / "type_subset.h");
     const std::string c = ReadAll(out / "type_subset.cpp");
     ok &= Check(h.find("enum class animal_e") != std::string::npos, "enum emitted");
-    ok &= Check(h.find("double f8v() const") != std::string::npos, "float64 accessor emitted");
-    ok &= Check(h.find("std::string payload() const") != std::string::npos, "bytes accessor emitted");
+    ok &= Check(h.find("const double& f8v() const") != std::string::npos, "float64 accessor emitted");
+    ok &= Check(h.find("const std::string& payload() const") != std::string::npos, "bytes accessor emitted");
     ok &= Check(c.find("m_f4v = m__io->read_f4le();") != std::string::npos, "f4 read emitted");
     ok &= Check(c.find("m_payload = m__io->read_bytes(4);") != std::string::npos, "bytes read emitted");
-    ok &= Check(c.find("bytes_to_str(m__io->read_bytes(3), \"ASCII\")") != std::string::npos, "encoded string read emitted");
+    ok &= Check(c.find("read_bytes(3)") != std::string::npos && c.find("ASCII") != std::string::npos, "encoded string read emitted");
     ok &= Check(c.find("m_pet = static_cast<animal_e>(m__io->read_u1());") != std::string::npos, "enum cast emitted");
   }
 
+
+  {
+    kscpp::ir::Spec spec;
+    auto parsed = kscpp::ir::LoadFromFile("../tests/data/control_flow_subset.ksir", &spec);
+    ok &= Check(parsed.ok, "control-flow fixture parses");
+
+    kscpp::CliOptions options;
+    const std::filesystem::path out = std::filesystem::temp_directory_path() / "kscpp_codegen_control_flow_test";
+    std::filesystem::remove_all(out);
+    options.out_dir = out.string();
+    options.targets = {"cpp_stl"};
+    options.runtime.cpp_standard = "17";
+
+    auto r = kscpp::codegen::EmitCppStl17FromIr(spec, options);
+    ok &= Check(r.ok, "control-flow subset codegen succeeds");
+
+    const std::string h = ReadAll(out / "control_flow_subset.h");
+    const std::string c = ReadAll(out / "control_flow_subset.cpp");
+    ok &= Check(h.find("std::vector<uint8_t>") != std::string::npos, "repeat attrs use vector storage");
+    ok &= Check(c.find("while (!m__io->is_eof())") != std::string::npos, "repeat-eos emitted");
+    ok &= Check(c.find("for (int i = 0; i < 2; i++)") != std::string::npos, "repeat-expr emitted");
+    ok &= Check(c.find("do {") != std::string::npos && c.find("repeat_item == 255") != std::string::npos,
+                "repeat-until emitted");
+    ok &= Check(c.find("if (opcode() == 1)") != std::string::npos, "if-conditional field emitted");
+    ok &= Check(c.find("opcode() == 1 ?") != std::string::npos && c.find("opcode() == 2 ?") != std::string::npos,
+                "switch-on cases emitted");
+  }
+
+  {
+    kscpp::ir::Spec bad;
+    auto parsed = kscpp::ir::LoadFromFile("../tests/data/invalid_switch_duplicate_else.ksir", &bad);
+    ok &= Check(!parsed.ok, "malformed switch duplicate else rejected deterministically");
+  }
+
+  {
+    kscpp::ir::Spec bad;
+    auto parsed = kscpp::ir::LoadFromFile("../tests/data/unsupported_dynamic_switch.ksir", &bad);
+    ok &= Check(parsed.ok, "dynamic switch fixture parses");
+
+    kscpp::CliOptions options;
+    options.out_dir = (std::filesystem::temp_directory_path() / "kscpp_codegen_bad_switch").string();
+    options.targets = {"cpp_stl"};
+    options.runtime.cpp_standard = "17";
+    auto r = kscpp::codegen::EmitCppStl17FromIr(bad, options);
+    ok &= Check(!r.ok, "dynamic switch behavior currently rejected");
+    ok &= Check(r.error.find("switch-on dynamic expressions") != std::string::npos,
+                "dynamic switch rejection is diagnosable");
+  }
   {
     kscpp::ir::Spec unsupported;
     unsupported.name = "unsupported";

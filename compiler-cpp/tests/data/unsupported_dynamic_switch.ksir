@@ -1,0 +1,10 @@
+KSIR1
+name "unsupported_dynamic_switch"
+default_endian le
+types 0
+attrs 1
+attr "tagged" primitive "u1" none "none" "none" "none" "none" none "none" "(bin \"+\" (name \"tag\") (int 1))" 1 "(int 1)" primitive "u1"
+enums 0
+instances 0
+validations 0
+end

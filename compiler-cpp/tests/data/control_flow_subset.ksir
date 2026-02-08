@@ -1,0 +1,15 @@
+KSIR1
+name "control_flow_subset"
+default_endian le
+types 0
+attrs 6
+attr "opcode" primitive "u1" none "none" "none" "none" "none" none "none" "none" 0
+attr "items_eos" primitive "u1" none "none" "none" "none" "none" eos "none" "none" 0
+attr "items_expr" primitive "u1" none "none" "none" "none" "none" expr "(int 2)" "none" 0
+attr "items_until" primitive "u1" none "none" "none" "none" "none" until "(bin \"==\" (name \"_\") (int 255))" "none" 0
+attr "maybe_u2" primitive "u2" none "none" "none" "none" "(bin \"==\" (name \"opcode\") (int 1))" none "none" "none" 0
+attr "payload" primitive "u1" none "none" "none" "none" "none" none "none" "(name \"opcode\")" 3 "(int 1)" primitive "u1" "(int 2)" primitive "u1" "else" primitive "u1"
+enums 0
+instances 0
+validations 0
+end
