@@ -5,6 +5,7 @@ types 2
 type "a_t" user "b_t"
 type "b_t" user "a_t"
 attrs 0
+enums 0
 instances 0
 validations 0
 end

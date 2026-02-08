@@ -1,0 +1,19 @@
+KSIR1
+name "type_subset"
+default_endian le
+types 0
+attrs 7
+attr "u8v" primitive "u8" none "none" "none" "none"
+attr "s4v" primitive "s4" none "none" "none" "none"
+attr "f4v" primitive "f4" none "none" "none" "none"
+attr "f8v" primitive "f8" none "none" "none" "none"
+attr "payload" primitive "bytes" none "(int 4)" "none" "none"
+attr "name" primitive "str" none "(int 3)" "none" "ASCII"
+attr "pet" primitive "u1" none "none" "animal" "none"
+enums 1
+enum "animal" 2
+enum_value 7 "cat"
+enum_value 13 "dog"
+instances 0
+validations 0
+end

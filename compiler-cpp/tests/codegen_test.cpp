@@ -134,6 +134,74 @@ int main() {
                 "instance-to-instance and field refs emitted");
   }
 
+
+  {
+    kscpp::ir::Spec spec;
+    spec.name = "type_subset";
+    spec.default_endian = kscpp::ir::Endian::kLe;
+
+    kscpp::ir::EnumDef e;
+    e.name = "animal";
+    e.values.push_back({7, "cat"});
+    e.values.push_back({13, "dog"});
+    spec.enums.push_back(e);
+
+    auto add_attr = [&](const std::string& id, kscpp::ir::PrimitiveType t) {
+      kscpp::ir::Attr a;
+      a.id = id;
+      a.type.kind = kscpp::ir::TypeRef::Kind::kPrimitive;
+      a.type.primitive = t;
+      spec.attrs.push_back(a);
+    };
+
+    add_attr("u8v", kscpp::ir::PrimitiveType::kU8);
+    add_attr("s4v", kscpp::ir::PrimitiveType::kS4);
+    add_attr("f4v", kscpp::ir::PrimitiveType::kF4);
+    add_attr("f8v", kscpp::ir::PrimitiveType::kF8);
+
+    kscpp::ir::Attr bytes;
+    bytes.id = "payload";
+    bytes.type.kind = kscpp::ir::TypeRef::Kind::kPrimitive;
+    bytes.type.primitive = kscpp::ir::PrimitiveType::kBytes;
+    bytes.size_expr = kscpp::ir::Expr::Int(4);
+    spec.attrs.push_back(bytes);
+
+    kscpp::ir::Attr str;
+    str.id = "name";
+    str.type.kind = kscpp::ir::TypeRef::Kind::kPrimitive;
+    str.type.primitive = kscpp::ir::PrimitiveType::kStr;
+    str.size_expr = kscpp::ir::Expr::Int(3);
+    str.encoding = "ASCII";
+    spec.attrs.push_back(str);
+
+    kscpp::ir::Attr en;
+    en.id = "pet";
+    en.type.kind = kscpp::ir::TypeRef::Kind::kPrimitive;
+    en.type.primitive = kscpp::ir::PrimitiveType::kU1;
+    en.enum_name = "animal";
+    spec.attrs.push_back(en);
+
+    kscpp::CliOptions options;
+    const std::filesystem::path out = std::filesystem::temp_directory_path() / "kscpp_codegen_type_test";
+    std::filesystem::remove_all(out);
+    options.out_dir = out.string();
+    options.targets = {"cpp_stl"};
+    options.runtime.cpp_standard = "17";
+
+    auto r = kscpp::codegen::EmitCppStl17FromIr(spec, options);
+    ok &= Check(r.ok, "type subset codegen succeeds");
+
+    const std::string h = ReadAll(out / "type_subset.h");
+    const std::string c = ReadAll(out / "type_subset.cpp");
+    ok &= Check(h.find("enum class animal_e") != std::string::npos, "enum emitted");
+    ok &= Check(h.find("double f8v() const") != std::string::npos, "float64 accessor emitted");
+    ok &= Check(h.find("std::string payload() const") != std::string::npos, "bytes accessor emitted");
+    ok &= Check(c.find("m_f4v = m__io->read_f4le();") != std::string::npos, "f4 read emitted");
+    ok &= Check(c.find("m_payload = m__io->read_bytes(4);") != std::string::npos, "bytes read emitted");
+    ok &= Check(c.find("bytes_to_str(m__io->read_bytes(3), \"ASCII\")") != std::string::npos, "encoded string read emitted");
+    ok &= Check(c.find("m_pet = static_cast<animal_e>(m__io->read_u1());") != std::string::npos, "enum cast emitted");
+  }
+
   {
     kscpp::ir::Spec unsupported;
     unsupported.name = "unsupported";

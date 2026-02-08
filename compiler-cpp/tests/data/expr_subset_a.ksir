@@ -5,6 +5,7 @@ types 0
 attrs 2
 attr "a" primitive "u1" none "none"
 attr "b" primitive "u1" none "none"
+enums 0
 instances 4
 instance "lit" "(int 7)"
 instance "arith" "(bin \"-\" (bin \"+\" (name \"a\") (bin \"*\" (name \"b\") (int 3))) (int 2))"

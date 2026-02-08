@@ -21,10 +21,19 @@ object MigrationIr {
 
     out.append(s"attrs ${spec.seq.size}\n")
     spec.seq.foreach { attr =>
-      val (typ, endianOverride, sizeExpr) = attrToIr(attr)
+      val (typ, endianOverride, sizeExpr, enumName, encoding) = attrToIr(attr)
       val endStr = endianOverride.map(e => endianToIr(Some(e))).getOrElse("none")
       val sizeStr = sizeExpr.map(exprToIr).getOrElse("none")
-      out.append(s"attr ${quote(attr.id.humanReadable)} ${renderTypeRef(typ)} $endStr ${quote(sizeStr)}\n")
+      out.append(s"attr ${quote(attr.id.humanReadable)} ${renderTypeRef(typ)} $endStr ${quote(sizeStr)} ${quote(enumName.getOrElse("none"))} ${quote(encoding.getOrElse("none"))}\n")
+    }
+
+    val enums = collectEnums(spec)
+    out.append(s"enums ${enums.size}\n")
+    enums.foreach { enumRow =>
+      out.append(s"enum ${quote(enumRow.name)} ${enumRow.values.size}\n")
+      enumRow.values.foreach { value =>
+        out.append(s"enum_value ${value.value} ${quote(value.name)}\n")
+      }
     }
 
     val valueInstances = spec.instances.values.collect { case v: ValueInstanceSpec => v }.toList
@@ -44,6 +53,8 @@ object MigrationIr {
   }
 
   private case class TypeRow(name: String, typeRef: TypeRef)
+  private case class EnumValueRow(value: Long, name: String)
+  private case class EnumRow(name: String, values: Seq[EnumValueRow])
   private case class ValidationRow(target: String, conditionExpr: Ast.expr, message: String)
 
   private case class TypeRef(kind: String, payload: String)
@@ -70,7 +81,7 @@ object MigrationIr {
     case None => "le"
   }
 
-  private def attrToIr(attr: AttrSpec): (TypeRef, Option[FixedEndian], Option[Ast.expr]) = {
+  private def attrToIr(attr: AttrSpec): (TypeRef, Option[FixedEndian], Option[Ast.expr], Option[String], Option[String]) = {
     val t = attr.dataType
     val endianOverride = t match {
       case IntMultiType(_, _, e) => e
@@ -84,7 +95,25 @@ object MigrationIr {
       case StrzType(BytesLimitType(size, _, _, _, _), _) => Some(size)
       case _ => None
     }
-    (typeRefFromDataType(t), endianOverride, sizeExpr)
+    val enumName = t match {
+      case EnumType(name, _) => Some(name.mkString("::"))
+      case _ => None
+    }
+    val encoding = t match {
+      case StrFromBytesType(_, enc) => Some(enc)
+      case StrzType(_, Some(enc)) => Some(enc)
+      case _ => None
+    }
+    (typeRefFromDataType(t), endianOverride, sizeExpr, enumName, encoding)
+  }
+
+  private def collectEnums(spec: ClassSpec): Seq[EnumRow] = {
+    spec.enums.values.toSeq.map { enumSpec =>
+      EnumRow(
+        enumSpec.nameAsStr,
+        enumSpec.map.toSeq.map { case (id, valueSpec) => EnumValueRow(id, valueSpec.name) }
+      )
+    }
   }
 
   private def typeRefFromDataType(t: DataType): TypeRef = t match {

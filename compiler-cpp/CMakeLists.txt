@@ -109,3 +109,10 @@ add_test(NAME kscpp_from_ir_codegen_unsupported_validation
 set_tests_properties(kscpp_from_ir_codegen_unsupported_validation PROPERTIES
   WILL_FAIL TRUE
 )
+
+add_test(NAME kscpp_from_ir_codegen_type_subset
+  COMMAND kscpp --from-ir ${CMAKE_CURRENT_SOURCE_DIR}/tests/data/type_subset.ksir -t cpp_stl --cpp-standard 17 -d ${CMAKE_CURRENT_BINARY_DIR}/generated_type_subset
+)
+set_tests_properties(kscpp_from_ir_codegen_type_subset PROPERTIES
+  PASS_REGULAR_EXPRESSION "IR codegen succeeded"
+)

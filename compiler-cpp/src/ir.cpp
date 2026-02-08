@@ -328,6 +328,28 @@ ValidationResult Validate(const Spec& spec) {
     return {true, ""};
   };
 
+  std::unordered_set<std::string> enum_names;
+  for (const auto& e : spec.enums) {
+    if (e.name.empty()) {
+      return {false, "enum.name is required"};
+    }
+    if (!enum_names.insert(e.name).second) {
+      return {false, "duplicate enum declaration: " + e.name};
+    }
+    if (e.values.empty()) {
+      return {false, "enum.values must not be empty: " + e.name};
+    }
+    std::unordered_set<std::string> value_names;
+    for (const auto& value : e.values) {
+      if (value.name.empty()) {
+        return {false, "enum value name is required in enum: " + e.name};
+      }
+      if (!value_names.insert(value.name).second) {
+        return {false, "duplicate enum value name in enum " + e.name + ": " + value.name};
+      }
+    }
+  }
+
   for (const auto& attr : spec.attrs) {
     if (attr.id.empty()) {
       return {false, "attr.id is required"};
@@ -335,6 +357,41 @@ ValidationResult Validate(const Spec& spec) {
     auto type_check = require_known_type(attr.type, "attr");
     if (!type_check.ok)
       return type_check;
+    if (attr.encoding.has_value() && attr.type.kind == TypeRef::Kind::kPrimitive && attr.type.primitive != PrimitiveType::kStr) {
+      return {false, "attr.encoding is only allowed for primitive str type"};
+    }
+    if (attr.enum_name.has_value()) {
+      if (attr.type.kind != TypeRef::Kind::kPrimitive) {
+        return {false, "attr.enum_name requires primitive integer type"};
+      }
+      switch (attr.type.primitive) {
+      case PrimitiveType::kU1:
+      case PrimitiveType::kU2:
+      case PrimitiveType::kU4:
+      case PrimitiveType::kU8:
+      case PrimitiveType::kS1:
+      case PrimitiveType::kS2:
+      case PrimitiveType::kS4:
+      case PrimitiveType::kS8:
+        break;
+      default:
+        return {false, "attr.enum_name requires primitive integer type"};
+      }
+      bool enum_found = enum_names.find(*attr.enum_name) != enum_names.end();
+      if (!enum_found) {
+        for (const auto& enum_name : enum_names) {
+          if (enum_name.size() > attr.enum_name->size() &&
+              enum_name.compare(enum_name.size() - attr.enum_name->size(), attr.enum_name->size(), *attr.enum_name) == 0 &&
+              enum_name[enum_name.size() - attr.enum_name->size() - 1] == ':') {
+            enum_found = true;
+            break;
+          }
+        }
+      }
+      if (!enum_found) {
+        return {false, "attr references unknown enum: " + *attr.enum_name};
+      }
+    }
   }
 
   for (const auto& inst : spec.instances) {
@@ -419,7 +476,17 @@ std::string Serialize(const Spec& spec) {
     } else {
       out << std::quoted(std::string("none"));
     }
+    out << " " << std::quoted(a.enum_name.value_or("none"));
+    out << " " << std::quoted(a.encoding.value_or("none"));
     out << "\n";
+  }
+
+  out << "enums " << spec.enums.size() << "\n";
+  for (const auto& e : spec.enums) {
+    out << "enum " << std::quoted(e.name) << " " << e.values.size() << "\n";
+    for (const auto& v : e.values) {
+      out << "enum_value " << v.value << " " << std::quoted(v.name) << "\n";
+    }
   }
 
   out << "instances " << spec.instances.size() << "\n";
@@ -513,6 +580,8 @@ ValidationResult Deserialize(const std::string& encoded, Spec* out) {
     Attr attr;
     std::string endian_text;
     std::string size_expr_text;
+    std::string enum_name_text;
+    std::string encoding_text;
 
     if (!(row >> key >> std::quoted(attr.id)) || key != "attr") {
       return {false, "invalid attr row"};
@@ -522,6 +591,10 @@ ValidationResult Deserialize(const std::string& encoded, Spec* out) {
       return p;
     if (!(row >> endian_text >> std::quoted(size_expr_text))) {
       return {false, "invalid attr row suffix"};
+    }
+    if (!(row >> std::quoted(enum_name_text) >> std::quoted(encoding_text))) {
+      enum_name_text = "none";
+      encoding_text = "none";
     }
     if (endian_text != "none") {
       Endian parsed;
@@ -538,7 +611,41 @@ ValidationResult Deserialize(const std::string& encoded, Spec* out) {
         return pe;
       attr.size_expr = expr;
     }
+    if (enum_name_text != "none") {
+      attr.enum_name = enum_name_text;
+    }
+    if (encoding_text != "none") {
+      attr.encoding = encoding_text;
+    }
     out->attrs.push_back(attr);
+  }
+
+  res = parse_count("enums", &count);
+  if (!res.ok)
+    return res;
+  out->enums.clear();
+  for (size_t i = 0; i < count; i++) {
+    if (!std::getline(in, line))
+      return {false, "truncated enum section"};
+    std::istringstream enum_row(line);
+    std::string enum_key;
+    EnumDef e;
+    size_t value_count = 0;
+    if (!(enum_row >> enum_key >> std::quoted(e.name) >> value_count) || enum_key != "enum") {
+      return {false, "invalid enum row"};
+    }
+    for (size_t j = 0; j < value_count; j++) {
+      if (!std::getline(in, line))
+        return {false, "truncated enum value section"};
+      std::istringstream vrow(line);
+      std::string vkey;
+      EnumValue v;
+      if (!(vrow >> vkey >> v.value >> std::quoted(v.name)) || vkey != "enum_value") {
+        return {false, "invalid enum value row"};
+      }
+      e.values.push_back(v);
+    }
+    out->enums.push_back(e);
   }
 
   res = parse_count("instances", &count);

@@ -4,6 +4,7 @@ default_endian le
 types 0
 attrs 1
 attr "one" primitive "u1" none "none"
+enums 0
 instances 1
 instance "calc" "(int 1)"
 validations 0

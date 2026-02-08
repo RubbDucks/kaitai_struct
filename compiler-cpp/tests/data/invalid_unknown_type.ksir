@@ -4,6 +4,7 @@ default_endian be
 types 0
 attrs 1
 attr "data" user "missing_t" none "none"
+enums 0
 instances 0
 validations 0
 end
