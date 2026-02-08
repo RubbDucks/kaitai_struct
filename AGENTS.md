@@ -233,3 +233,5 @@ When editing `.ksy` specs or generator logic, keep these core concepts in mind:
 - `tests/run-cpp_stl_17` can take a long time and produce very verbose compiler output; when debugging CI-like runs locally, redirect stdout/stderr to a log file and tail `tests/test_out/cpp_stl_17/build-*.log` for progress.
 - `tests/run-cpp_stl_17` can finish with exit code 0 even after excluding many specs during auto-recovery; check the `success on run attempt` line for non-zero excluded test counts when judging coverage quality.
 - For Scala stage compiler invocations that pass short `-d` outdir while also compiling `.ksy` inputs (including migration golden scripts), insert `--` before `-d` to prevent outdir from being parsed as an input file.
+
+- `tests/run-cpp_stl_17` may spend a long time in the initial CMake build phase (compiling hundreds of generated specs); expect progress percentages to advance slowly and monitor `tests/test_out/cpp_stl_17/build-*.log` rather than assuming a hang.
