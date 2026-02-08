@@ -49,12 +49,26 @@ This directory tracks the staged migration plan for introducing a C++17 implemen
 
 > **Explicit policy:** Scala remains the default and required compiler implementation throughout this migration until a later, explicit flip commit is approved.
 
+## Migration CI status
+
+![Migration differential (selective blocking)](https://github.com/kaitai-io/kaitai_struct/actions/workflows/main.yml/badge.svg)
+
+The `migration differential (selective blocking)` step runs `tests/ci-cpp17-differential` with `--enforce-gate required`.
+
+| Signal | Gate type | CI behavior | Purpose |
+|---|---|---|---|
+| Required parity fixtures | `required` | **Blocking** (job fails on mismatch/error) | Enforce exact Scala-vs-C++17 normalized parity in the minimum guarded subset. |
+| Known migration gaps | `visibility` | Non-blocking | Keep unsupported targets/slices visible in reports while migration is incomplete. |
+
+Fixture gate assignment is declared in `tests/migration_golden/cpp17_differential_fixtures.tsv`.
+
 
 ## Target differential coverage (active fork targets)
 
-The migration differential fixture inventory (`tests/migration_golden/cpp17_differential_fixtures.tsv`) includes one representative fixture per active target in this fork:
+The migration differential fixture inventory (`tests/migration_golden/cpp17_differential_fixtures.tsv`) includes one representative fixture per active target in this fork, plus a minimum required parity subset:
 
-- `cpp_stl`: Scala-vs-C++17(IR) differential check with an explicitly documented known mismatch allowance where output is semantically equivalent but textually different.
+- `cpp_stl` required subset: `cpp17_empty_parity` (metadata-only fixture) enforces exact normalized parity and is CI-blocking.
+- `cpp_stl` visibility subset: `cpp17_hello_world` remains visible as a known non-blocking mismatch while text-level convergence is still in progress.
 - `lua`, `wireshark_lua`, `python`, `ruby`: Scala oracle checks with explicit gap/deviation annotations until equivalent C++17 emitters exist.
 
 This keeps Scala as the source of truth where C++17 coverage is intentionally incomplete, while still surfacing per-target pass/fail/gap counts in the differential report.

@@ -25,6 +25,7 @@ class Fixture:
     target: str
     parity_criteria: str
     known_deviation: str
+    gate: str
 
 
 class DifferentialFailure(RuntimeError):
@@ -37,6 +38,15 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT, help="Directory for artifacts and reports")
     parser.add_argument("--max-diff-lines", type=int, default=80, help="Max unified diff lines to include in report snippets")
     parser.add_argument("--informational", action="store_true", help="Always exit 0; report is informational only")
+    parser.add_argument(
+        "--enforce-gate",
+        choices=["none", "required", "all"],
+        default="all",
+        help=(
+            "Which fixture gate to enforce when deciding failure exit code: "
+            "none (always pass unless tooling crashes), required (block only required fixtures), all (block all fixtures)."
+        ),
+    )
     return parser.parse_args()
 
 
@@ -47,9 +57,16 @@ def parse_fixtures(path: Path) -> list[Fixture]:
         if not stripped or stripped.startswith("#"):
             continue
         row = stripped.split("\t")
-        if len(row) != 7:
+        if len(row) not in (7, 8):
             raise DifferentialFailure(f"Invalid fixtures row in {path}: {line}")
-        fixture_id, category, mode, ksy, target, parity_criteria, known_deviation = row
+        if len(row) == 7:
+            fixture_id, category, mode, ksy, target, parity_criteria, known_deviation = row
+            gate = "visibility"
+        else:
+            fixture_id, category, mode, ksy, target, parity_criteria, known_deviation, gate = row
+
+        if gate not in ("required", "visibility"):
+            raise DifferentialFailure(f"Invalid fixture gate '{gate}' for fixture {fixture_id} in {path}")
         if mode != "success":
             continue
         fixtures.append(
@@ -60,6 +77,7 @@ def parse_fixtures(path: Path) -> list[Fixture]:
                 target=target,
                 parity_criteria=parity_criteria,
                 known_deviation=known_deviation,
+                gate=gate,
             )
         )
     return fixtures
@@ -197,6 +215,7 @@ def run_fixture(fixture: Fixture, out_root: Path, max_diff_lines: int) -> dict:
         "target": fixture.target,
         "parity_criteria": fixture.parity_criteria,
         "known_deviation": fixture.known_deviation,
+        "gate": fixture.gate,
         "ksy": str(fixture.ksy.relative_to(REPO_ROOT)),
         "status": status,
         "diff": diff_info,
@@ -209,10 +228,13 @@ def write_human_summary(report: dict, summary_path: Path) -> None:
         "# C++17 migration differential report",
         "",
         f"fixtures: {report['summary']['fixtures_total']}",
+        f"required fixtures: {report['summary']['fixtures_required']}",
         f"matches: {report['summary']['matches']}",
         f"mismatches: {report['summary']['mismatches']}",
         f"gaps: {report['summary']['gaps']}",
         f"errors: {report['summary']['errors']}",
+        f"required mismatches: {report['summary']['required_mismatches']}",
+        f"required errors: {report['summary']['required_errors']}",
         "",
         "per-target:",
     ]
@@ -223,7 +245,10 @@ def write_human_summary(report: dict, summary_path: Path) -> None:
 
     for fixture in report["fixtures"]:
         lines.append(
-            f"- {fixture['id']} [{fixture['target']}/{fixture['parity_criteria']}]: {fixture['status']} ({fixture['artifact_dir']})"
+            (
+                f"- {fixture['id']} [{fixture['target']}/{fixture['parity_criteria']}] "
+                f"gate={fixture['gate']}: {fixture['status']} ({fixture['artifact_dir']})"
+            )
         )
         if fixture.get("known_deviation"):
             lines.append(f"  known deviation: {fixture['known_deviation']}")
@@ -259,14 +284,17 @@ def main() -> int:
         "schema_version": 1,
         "tool": "run_cpp17_differential.py",
         "fixtures": [],
-        "summary": {
-            "fixtures_total": len(fixtures),
-            "matches": 0,
-            "mismatches": 0,
-            "gaps": 0,
-            "errors": 0,
-            "by_target": {},
-        },
+            "summary": {
+                "fixtures_total": len(fixtures),
+                "fixtures_required": 0,
+                "matches": 0,
+                "mismatches": 0,
+                "gaps": 0,
+                "errors": 0,
+                "required_mismatches": 0,
+                "required_errors": 0,
+                "by_target": {},
+            },
     }
 
     for fixture in fixtures:
@@ -279,6 +307,7 @@ def main() -> int:
                 "target": fixture.target,
                 "parity_criteria": fixture.parity_criteria,
                 "known_deviation": fixture.known_deviation,
+                "gate": fixture.gate,
                 "ksy": str(fixture.ksy.relative_to(REPO_ROOT)),
                 "status": "error",
                 "error": str(exc),
@@ -289,18 +318,24 @@ def main() -> int:
         target_stats = report["summary"]["by_target"].setdefault(
             result["target"], {"pass": 0, "fail": 0, "gap": 0, "error": 0}
         )
+        if result["gate"] == "required":
+            report["summary"]["fixtures_required"] += 1
         if result["status"] == "match":
             report["summary"]["matches"] += 1
             target_stats["pass"] += 1
         elif result["status"] == "mismatch":
             report["summary"]["mismatches"] += 1
             target_stats["fail"] += 1
+            if result["gate"] == "required":
+                report["summary"]["required_mismatches"] += 1
         elif result["status"] == "gap":
             report["summary"]["gaps"] += 1
             target_stats["gap"] += 1
         else:
             report["summary"]["errors"] += 1
             target_stats["error"] += 1
+            if result["gate"] == "required":
+                report["summary"]["required_errors"] += 1
 
     json_path = args.output_dir / "report.json"
     json_path.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
@@ -308,7 +343,17 @@ def main() -> int:
     write_human_summary(report, human_path)
 
     print(human_path.read_text(encoding="utf-8"), end="")
-    is_clean = report["summary"]["mismatches"] == 0 and report["summary"]["errors"] == 0
+    if args.enforce_gate == "required":
+        enforce_mismatches = report["summary"]["required_mismatches"]
+        enforce_errors = report["summary"]["required_errors"]
+    elif args.enforce_gate == "all":
+        enforce_mismatches = report["summary"]["mismatches"]
+        enforce_errors = report["summary"]["errors"]
+    else:
+        enforce_mismatches = 0
+        enforce_errors = 0
+
+    is_clean = enforce_mismatches == 0 and enforce_errors == 0
     if is_clean or args.informational:
         return 0
     return 1

@@ -7,4 +7,4 @@ OUT_DIR="$ROOT_DIR/tests/test_out/migration_differential"
 "$ROOT_DIR/tests/migration_golden/run_cpp17_differential.py" \
   --fixtures "$ROOT_DIR/tests/migration_golden/cpp17_differential_fixtures.tsv" \
   --output-dir "$OUT_DIR" \
-  --informational
+  --enforce-gate required

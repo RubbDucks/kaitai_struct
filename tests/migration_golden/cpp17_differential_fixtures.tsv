@@ -1,6 +1,7 @@
-# id	category	mode	ksy	target	parity_criteria	known_deviation
-cpp17_hello_world	primitives	success	tests/formats/hello_world.ksy	cpp_stl	known_mismatch_allowed	C++17 backend wraps scalar read in synthetic `if (true)` block; semantically equivalent but not text-identical to Scala output.
-lua_process_xor_const	process	success	tests/formats/process_xor_const.ksy	lua	scala_oracle_only	C++17 backend does not emit Lua yet; Scala output remains source of truth.
-wireshark_lua_default_endian	primitives	success	tests/formats/default_big_endian.ksy	wireshark_lua	scala_oracle_only	C++17 backend does not emit Wireshark Lua dissectors yet; Scala output remains source of truth.
-python_instance_std	instances	success	tests/formats/instance_std.ksy	python	scala_oracle_only	C++17 backend does not emit Python yet; Scala output remains source of truth.
-ruby_repeat_n_bytes	repeats	success	tests/formats/repeat_n_bytes.ksy	ruby	scala_oracle_only	C++17 backend does not emit Ruby yet; Scala output remains source of truth.
+# id	category	mode	ksy	target	parity_criteria	known_deviation	gate
+cpp17_empty_parity	primitives	success	tests/migration_golden/fixtures/cpp17_empty_parity.ksy	cpp_stl	match_scala_vs_cpp17_ir		required
+cpp17_hello_world	primitives	success	tests/formats/hello_world.ksy	cpp_stl	known_mismatch_allowed	C++17 backend wraps scalar read in synthetic `if (true)` block; semantically equivalent but not text-identical to Scala output.	visibility
+lua_process_xor_const	process	success	tests/formats/process_xor_const.ksy	lua	scala_oracle_only	C++17 backend does not emit Lua yet; Scala output remains source of truth.	visibility
+wireshark_lua_default_endian	primitives	success	tests/formats/default_big_endian.ksy	wireshark_lua	scala_oracle_only	C++17 backend does not emit Wireshark Lua dissectors yet; Scala output remains source of truth.	visibility
+python_instance_std	instances	success	tests/formats/instance_std.ksy	python	scala_oracle_only	C++17 backend does not emit Python yet; Scala output remains source of truth.	visibility
+ruby_repeat_n_bytes	repeats	success	tests/formats/repeat_n_bytes.ksy	ruby	scala_oracle_only	C++17 backend does not emit Ruby yet; Scala output remains source of truth.	visibility

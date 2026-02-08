@@ -19,8 +19,9 @@ Normalization steps:
 2. Replace absolute repository paths with `<REPO_ROOT>`.
 3. Replace ISO-like timestamps with `<TIMESTAMP>`.
 4. Replace generated banner lines (`This is a generated file!`) with `<GENERATED_BANNER>`.
-5. Collapse 3+ blank lines into 2 blank lines.
-6. Ensure a single trailing newline.
+5. Remove the migration-only C++ include `#include <kaitai/exceptions.h>` (non-semantic include-set drift).
+6. Collapse 3+ blank lines into 2 blank lines.
+7. Ensure a single trailing newline.
 
 ## Stable vs unstable fields
 
@@ -55,6 +56,20 @@ The migration baseline covers these categories:
 - errors
 
 Fixture inventory is declared in `tests/migration_golden/fixtures.tsv`.
+
+## Differential gate levels (promotion policy)
+
+`tests/migration_golden/cpp17_differential_fixtures.tsv` adds a `gate` column used by
+`tests/migration_golden/run_cpp17_differential.py --enforce-gate ...`:
+
+- `required`: parity for these fixtures is migration-blocking in CI.
+- `visibility`: parity/gap findings are always reported but non-blocking.
+
+Current minimum required parity subset is intentionally small and exact:
+
+- `cpp17_empty_parity` (`target=cpp_stl`, `parity_criteria=match_scala_vs_cpp17_ir`) must match Scala normalized output exactly.
+
+Unsupported targets and known migration deviations remain in `visibility` until explicitly promoted.
 
 ## Reproducible Scala baseline workflow
 

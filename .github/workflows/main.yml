@@ -89,10 +89,9 @@ jobs:
           cd tests
           ./build-formats
 
-      - name: migration differential (informational)
+      - name: migration differential (selective blocking)
         run: |
           ./tests/ci-cpp17-differential
-        continue-on-error: true
 
       - name: publish formats to ci_targets
         env:
