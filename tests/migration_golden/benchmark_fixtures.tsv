@@ -1,0 +1,4 @@
+# fixture_id	category	mode	ksy	target	notes
+bench_hello_world	primitives	success	tests/formats/hello_world.ksy	cpp_stl	baseline primitive sequence parse
+bench_expr_subset_a	expression	success	inline:expr_subset_a	cpp_stl	expression-heavy synthetic fixture aligned with migration subset
+bench_type_subset	types	success	inline:type_subset	cpp_stl	type-focused synthetic fixture for integer/float/bytes/string coverage
