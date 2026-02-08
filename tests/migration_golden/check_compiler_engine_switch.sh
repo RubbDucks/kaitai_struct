@@ -8,8 +8,8 @@ cd "$ROOT_DIR"
 
 echo "[migration-golden] verifying compiler engine default"
 default_engine="$(sh -c '. ./tests/config; printf "%s" "$KAITAI_COMPILER_ENGINE"')"
-if [[ "$default_engine" != "scala" ]]; then
-  echo "Expected default engine 'scala', got '$default_engine'" >&2
+if [[ "$default_engine" != "cpp17" ]]; then
+  echo "Expected default engine 'cpp17', got '$default_engine'" >&2
   exit 1
 fi
 
@@ -28,6 +28,22 @@ if ! grep -q "\[compiler-engine\] selected=cpp17" /tmp/ks_cpp17_switch.err; then
 fi
 if ! grep -q "currently supports only target=cpp_stl" /tmp/ks_cpp17_switch.err; then
   echo "Expected unsupported-target diagnostic" >&2
+  exit 1
+fi
+
+
+
+echo "[migration-golden] verifying explicit scala fallback marker"
+set +e
+KAITAI_COMPILER_ENGINE=scala ./tests/build-formats python >/tmp/ks_scala_switch.out 2>/tmp/ks_scala_switch.err
+status=$?
+set -e
+if [[ $status -ne 0 ]]; then
+  echo "Expected scala build-formats python to succeed" >&2
+  exit 1
+fi
+if ! grep -q "\[compiler-engine\] selected=scala" /tmp/ks_scala_switch.err; then
+  echo "Expected scala telemetry marker in stderr" >&2
   exit 1
 fi
 

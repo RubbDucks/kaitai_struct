@@ -64,7 +64,7 @@ elif [ "$KAITAI_COMPILER_ENGINE" = "cpp17" ]; then
     echo "[compiler-engine] selected=cpp17 script=build-formats target=$TARGET" >&2
 
     if [ "$TARGET" != "cpp_stl" ]; then
-        echo "build-formats: cpp17 engine currently supports only target=cpp_stl (got: $TARGET)" >&2
+        echo "build-formats: cpp17 engine currently supports only target=cpp_stl (got: $TARGET); use KAITAI_COMPILER_ENGINE=scala for other targets" >&2
         exit 2
     fi
 

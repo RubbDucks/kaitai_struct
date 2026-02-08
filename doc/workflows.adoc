@@ -46,8 +46,8 @@ Generate only what you need for fast local iteration:
 [source,shell]
 ----
 cd tests
-./build-formats python
-./build-formats lua
+KAITAI_COMPILER_ENGINE=scala ./build-formats python
+KAITAI_COMPILER_ENGINE=scala ./build-formats lua
 ----
 
 For C++17 tests, generate into the required dedicated output directory:
@@ -82,7 +82,9 @@ Notes:
 == Command validity and troubleshooting
 
 * Use `tests/build-formats <target>` where `<target>` is a compiler target
-  like `python`, `lua`, or `cpp_stl`.
+  like `cpp_stl`.
+* During migration, non-`cpp_stl` targets require Scala fallback, e.g.
+  `KAITAI_COMPILER_ENGINE=scala ./build-formats python`.
 * `cpp_stl_17` is not a `build-formats` target. Use the explicit
   `kaitai-struct-compiler --cpp-standard 17` command shown above.
 * If package installs fail because Ubuntu mirrors changed, run:

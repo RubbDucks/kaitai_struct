@@ -9,9 +9,9 @@ CPP17_COMPILER_BIN="$COMPILER_CPP_DIR/build/kscpp"
 
 # Compiler engine selector for test/build workflows.
 # Supported values:
-#   - scala (default): existing Scala compiler path
-#   - cpp17: opt-in migration path (currently only supported for build-formats cpp_stl)
-KAITAI_COMPILER_ENGINE=${KAITAI_COMPILER_ENGINE:-scala}
+#   - cpp17 (default): migration path for default test/build entrypoints
+#   - scala: stable fallback path
+KAITAI_COMPILER_ENGINE=${KAITAI_COMPILER_ENGINE:-cpp17}
 
 LUA_RUNTIME_DIR=../runtime/lua
 PYTHON_RUNTIME_DIR=../runtime/python
