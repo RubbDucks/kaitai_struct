@@ -124,7 +124,6 @@ std::map<std::string, ExprType> ComputeInstanceTypes(const ir::Spec& spec) {
 
 Result ValidateSupportedSubset(const ir::Spec& spec) {
   if (!spec.types.empty()) return {false, "not yet supported: type definitions in IR (types section)"};
-  if (!spec.validations.empty()) return {false, "not yet supported: validations in IR"};
 
   for (const auto& attr : spec.attrs) {
     if (attr.type.kind != ir::TypeRef::Kind::kPrimitive) return {false, "not yet supported: user-defined attr types"};
@@ -226,6 +225,14 @@ Result ValidateSupportedSubset(const ir::Spec& spec) {
     known_names.insert(inst.id);
   }
 
+  for (const auto& validation : spec.validations) {
+    if (known_names.find(validation.target) == known_names.end()) {
+      return {false, "not yet supported: validation target outside attrs/instances: " + validation.target};
+    }
+    auto result = validate_expr(validation.condition_expr);
+    if (!result.ok) return result;
+  }
+
   return {true, ""};
 }
 
@@ -289,8 +296,13 @@ std::string CppReadPrimitiveExpr(ir::PrimitiveType primitive, std::optional<ir::
 
 std::string ReadExpr(const ir::Attr& attr, ir::Endian default_endian) {
   if (attr.type.primitive == ir::PrimitiveType::kBytes) {
-    if (attr.size_expr.has_value()) return "m__io->read_bytes(" + RenderExpr(*attr.size_expr, {}, {}, -1) + ")";
-    return "m__io->read_bytes_full()";
+    std::string read = attr.size_expr.has_value() ?
+      ("m__io->read_bytes(" + RenderExpr(*attr.size_expr, {}, {}, -1) + ")") :
+      "m__io->read_bytes_full()";
+    if (attr.process.has_value() && attr.process->kind == ir::Attr::Process::Kind::kXorConst) {
+      read = "kaitai::kstream::process_xor_one(" + read + ", " + std::to_string(attr.process->xor_const) + ")";
+    }
+    return read;
   }
   if (attr.type.primitive == ir::PrimitiveType::kStr) {
     if (!attr.size_expr.has_value()) return "std::string()";
@@ -390,6 +402,7 @@ std::string RenderHeader(const ir::Spec& spec) {
   out << "// This is a generated file! Please edit source .ksy file and use kaitai-struct-compiler to rebuild\n\n";
   out << "class " << spec.name << "_t;\n\n";
   out << "#include \"kaitai/kaitaistruct.h\"\n";
+  out << "#include <kaitai/exceptions.h>\n";
   out << "#include <stdint.h>\n";
   out << "#include <memory>\n";
   if (NeedsStringInclude(spec)) out << "#include <string>\n";
@@ -429,6 +442,22 @@ std::string RenderHeader(const ir::Spec& spec) {
   out << "    kaitai::kstruct* m__parent;\n";
   out << "};\n";
   return out.str();
+}
+
+
+std::string ValidationValueExpr(const std::string& target, const std::set<std::string>& attrs, const std::set<std::string>& instances) {
+  if (attrs.find(target) != attrs.end() || instances.find(target) != instances.end()) return target + "()";
+  return target;
+}
+
+std::string ValidationValueType(const std::string& target, const ir::Spec& spec,
+                                const std::map<std::string, ExprType>& instance_types) {
+  for (const auto& attr : spec.attrs) {
+    if (attr.id == target) return CppStorageType(attr);
+  }
+  auto it = instance_types.find(target);
+  if (it != instance_types.end()) return CppExprType(it->second);
+  return "int32_t";
 }
 
 std::string RenderSource(const ir::Spec& spec) {
@@ -476,6 +505,17 @@ std::string RenderSource(const ir::Spec& spec) {
       out << "            m_" << attr.id << ".push_back(repeat_item);\n";
       out << "        } while (!(" << RenderExpr(*attr.repeat_expr, attr_names, {}, -1, "repeat_item") << "));\n";
     }
+    out << "    }\n";
+  }
+  std::set<std::string> all_instance_names;
+  for (const auto& inst : spec.instances) all_instance_names.insert(inst.id);
+  for (const auto& validation : spec.validations) {
+    const std::string cond = RenderExpr(validation.condition_expr, attr_names, all_instance_names, -1);
+    const std::string val_expr = ValidationValueExpr(validation.target, attr_names, all_instance_names);
+    const std::string val_type = ValidationValueType(validation.target, spec, instance_types);
+    out << "    if (!(" << cond << ")) {\n";
+    out << "        throw kaitai::validation_expr_error<" << val_type << ">(" << val_expr
+        << ", m__io, \"/valid/" << validation.target << "\");\n";
     out << "    }\n";
   }
   out << "}\n\n";

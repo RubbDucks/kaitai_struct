@@ -1,0 +1,17 @@
+KSIR1
+name "advanced_semantics_subset"
+default_endian le
+imports 0
+types 0
+attrs 3
+attr "len" primitive "u1" none "none" "none" "none" "none" none "none" "none" 0
+attr "payload" primitive "bytes" none "(name \"len\")" "none" "none" "xor_const:255" "none" none "none" "none" 0
+attr "flag" primitive "u1" none "none" "none" "none" "none" none "none" "none" 0
+enums 0
+instances 2
+instance "payload_len" "(name \"len\")"
+instance "is_flag_one" "(bin \"==\" (name \"flag\") (int 1))"
+validations 2
+validation "len" "(bin \">\" (name \"len\") (int 0))" ""
+validation "is_flag_one" "(name \"is_flag_one\")" ""
+end

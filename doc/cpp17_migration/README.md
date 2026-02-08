@@ -60,8 +60,8 @@ This directory tracks the staged migration plan for introducing a C++17 implemen
 | String attrs (`str`, explicit `encoding`) | Implemented | Implemented (size + encoding subset) |
 | Enum emission / enum-typed integer attrs | Implemented | Implemented (subset fixtures) |
 | User types / `types` section | Implemented | Missing |
-| Validations | Implemented | Missing |
-| Advanced control flow (`switch-on`, repeats, process, etc.) | Implemented | Partial (`repeat-*`, `if`, primitive `switch-on` subset) |
+| Validations | Implemented | Implemented (expression-style checks subset) |
+| Advanced control flow (`switch-on`, repeats, process, etc.) | Implemented | Partial (`repeat-*`, `if`, primitive `switch-on`, `process: xor(const)` subset) |
 
 ## Phased rollout policy
 

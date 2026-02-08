@@ -68,6 +68,15 @@ struct TypeDef {
 };
 
 struct Attr {
+  struct Process {
+    enum class Kind {
+      kXorConst,
+    };
+
+    Kind kind = Kind::kXorConst;
+    int xor_const = 0;
+  };
+
   enum class RepeatKind {
     kNone,
     kEos,
@@ -86,6 +95,7 @@ struct Attr {
   std::optional<Expr> size_expr;
   std::optional<std::string> enum_name;
   std::optional<std::string> encoding;
+  std::optional<Process> process;
   std::optional<Expr> if_expr;
   RepeatKind repeat = RepeatKind::kNone;
   std::optional<Expr> repeat_expr;
