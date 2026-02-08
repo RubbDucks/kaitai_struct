@@ -84,10 +84,19 @@ jobs:
         if: github.event_name == 'push' && github.ref == 'refs/heads/master'
         continue-on-error: true
 
-      - name: build-formats
+      - name: build cpp17 compiler
+        run: |
+          cmake -S compiler-cpp -B compiler-cpp/build
+          cmake --build compiler-cpp/build
+
+      - name: compiler engine switch smoke
+        run: |
+          ./tests/migration_golden/check_compiler_engine_switch.sh
+
+      - name: build-formats (default engine)
         run: |
           cd tests
-          ./build-formats
+          ./build-formats cpp_stl
 
       - name: migration differential (selective blocking)
         run: |

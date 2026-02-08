@@ -2,7 +2,7 @@
 
 ## Policy intent
 
-During migration and immediately after a future default flip, users must have a
+With the default now flipped to the C++17 compiler path, users must have a
 clear, low-risk path to revert to the Scala compiler engine.
 
 ## Fallback mechanism
@@ -11,14 +11,12 @@ clear, low-risk path to revert to the Scala compiler engine.
 - Stable fallback command:
 
 ```sh
-unset KAITAI_COMPILER_ENGINE
-# or force explicitly
 KAITAI_COMPILER_ENGINE=scala ./build-compiler
 ```
 
 ## Time-bounded support window
 
-When the default is eventually flipped to `cpp17`, maintainers commit to:
+After the default flip to `cpp17`, maintainers commit to:
 
 1. **Dual-path support for 2 minor releases or 6 months (whichever is longer)**
    after the flip.

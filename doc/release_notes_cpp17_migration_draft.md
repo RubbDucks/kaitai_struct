@@ -1,18 +1,18 @@
-# Draft release notes: Scala → C++17 compiler migration (pre-default-flip)
+# Draft release notes: Scala → C++17 compiler migration (post-default-flip)
 
 ## Summary
 
 This release line continues the compiler migration by expanding readiness and
-validation for the experimental C++17 path while keeping Scala as default.
+validation while making the C++17 path the default compiler engine.
 
-- Default engine remains Scala.
-- C++17 path remains opt-in using `KAITAI_COMPILER_ENGINE=cpp17`.
+- Default engine is now C++17 for tests/build entrypoints.
+- Scala path remains available via `KAITAI_COMPILER_ENGINE=scala`.
 - Readiness gates now include explicit parity/performance/checklist signals.
 
 ## Operator caveats
 
-- **No default behavior change yet**: users who do not set
-  `KAITAI_COMPILER_ENGINE` continue on the Scala compiler path.
+- **Default behavior changed**: users who do not set
+  `KAITAI_COMPILER_ENGINE` use the C++17 compiler path.
 - **Target scope**: C++17 migration checks in this fork are focused on active
   targets (`cpp_stl`, `lua`, `wireshark_lua`, `python`, `ruby`).
 - **Known deviations are explicit**: migration differential fixtures may include
@@ -23,9 +23,9 @@ validation for the experimental C++17 path while keeping Scala as default.
 
 ## Planned default-flip prerequisites
 
-The default flip will be considered only after the readiness checklist in
-`doc/cpp17_default_flip_readiness.md` reaches all-pass status on CI and release
-qualification runs.
+The default flip is now in effect, gated by the readiness checklist in
+`doc/cpp17_default_flip_readiness.md`. Continue running those gates for
+post-flip qualification runs.
 
 ## Rollback and fallback
 
@@ -33,9 +33,9 @@ If migration regressions are detected during rollout, operators should force the
 stable path with:
 
 ```sh
-unset KAITAI_COMPILER_ENGINE
-# or force explicitly
 KAITAI_COMPILER_ENGINE=scala ./build-compiler
+# restore default after rollback testing
+unset KAITAI_COMPILER_ENGINE
 ```
 
 Fallback support window and policy are documented in

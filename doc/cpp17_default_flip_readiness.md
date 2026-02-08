@@ -1,13 +1,13 @@
 # C++17 compiler default-flip readiness checklist
 
-This checklist is the release gate for flipping `KAITAI_COMPILER_ENGINE` default
-from `scala` to `cpp17` in a later commit.
+This checklist is the release gate that was used to flip
+`KAITAI_COMPILER_ENGINE` default from `scala` to `cpp17`.
 
 ## Scope and non-goals
 
-- This document does **not** flip the default engine.
-- Scala build/test wiring remains the default reference path.
-- C++17 compiler flow remains opt-in (`KAITAI_COMPILER_ENGINE=cpp17`).
+- Default engine is now `cpp17` for test/build entrypoints in this repository.
+- Scala build/test wiring is retained as explicit fallback (`KAITAI_COMPILER_ENGINE=scala`).
+- This checklist remains the required evidence set for post-flip monitoring.
 
 ## Signal catalog (automated)
 
