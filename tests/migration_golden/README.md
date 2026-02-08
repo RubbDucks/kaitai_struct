@@ -54,6 +54,13 @@ tests/migration_golden/run_cpp17_differential.py \
   --enforce-gate required
 ```
 
+
+Run default-flip readiness review gates (checklist mapping + differential + benchmarks):
+
+```bash
+tests/ci-cpp17-readiness-review
+```
+
 Run migration benchmark harness (fixed corpus, latency + memory metrics, schema-checked report):
 
 ```bash
