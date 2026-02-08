@@ -1,0 +1,14 @@
+KSIR1
+name "imports_nested_root"
+default_endian le
+imports 2
+import "imports/common.ksir"
+import "imports/models/payload.ksir"
+types 1
+type "root_alias" user "payload_t"
+attrs 1
+attr "field" user "payload_t" none "none"
+enums 0
+instances 0
+validations 0
+end

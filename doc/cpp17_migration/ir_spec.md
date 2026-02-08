@@ -21,6 +21,7 @@ A `Spec` object contains:
 
 - `name` (**required**): top-level KS type name (`meta/id` conceptually).
 - `default_endian` (**required**): either `le` or `be`; maps to `meta/endian` default semantics.
+- `imports`: optional IR sidecar import list (relative/absolute file paths).
 - `types`: named type aliases / helper types.
 - `attrs`: sequence-style attributes (`seq` entries conceptually).
 - `instances`: computed/lazy fields (`instances` conceptually).
@@ -95,6 +96,9 @@ This format is intentionally simple for migration bring-up and testability; late
 - user `TypeRef` requires non-empty user type name.
 - user `TypeRef` must resolve to a declared type name (or the top-level spec name).
 - type aliases in `types` must not form reference cycles.
+- imported IR files are resolved relative to the current file first, then `--import-path` roots.
+- import graphs must be acyclic.
+- imported `types` and `enums` must not create duplicate symbol names after merge.
 - `attr.id` is required.
 - `instance.id` is required.
 - `validation.target` is required.

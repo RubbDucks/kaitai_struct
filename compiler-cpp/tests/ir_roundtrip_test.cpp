@@ -124,5 +124,28 @@ int main() {
     ok &= Check(r.error.find("cycle") != std::string::npos, "cycle diagnostic is clear");
   }
 
+  {
+    kscpp::ir::Spec imported;
+    auto r = kscpp::ir::LoadFromFileWithImports("../tests/data/imports_nested_root.ksir", {"../tests/data"}, &imported);
+    ok &= Check(r.ok, "nested imports load and merge");
+    ok &= Check(imported.types.size() == 5, "merged imported types are available");
+  }
+
+  {
+    kscpp::ir::Spec imported;
+    auto r = kscpp::ir::LoadFromFileWithImports("../tests/data/imports/cycle/a.ksir", {"../tests/data"}, &imported);
+    ok &= Check(!r.ok, "import cycle rejected");
+    ok &= Check(r.error.find("import cycle detected") != std::string::npos,
+                "import cycle diagnostic is clear");
+  }
+
+  {
+    kscpp::ir::Spec imported;
+    auto r = kscpp::ir::LoadFromFileWithImports("../tests/data/imports/collision/root.ksir", {"../tests/data"}, &imported);
+    ok &= Check(!r.ok, "duplicate imported symbol rejected");
+    ok &= Check(r.error.find("duplicate symbol across imports") != std::string::npos,
+                "duplicate symbol diagnostic is clear");
+  }
+
   return ok ? 0 : 1;
 }

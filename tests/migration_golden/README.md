@@ -29,3 +29,9 @@ Type-focused parity checks for integer/float/bytes/string/enum subset:
 ```bash
 tests/migration_golden/compare_cpp17_type_subset.sh
 ```
+
+Import graph migration checks (nested imports + cycle/collision diagnostics):
+
+```bash
+tests/migration_golden/compare_cpp17_imports.sh
+```

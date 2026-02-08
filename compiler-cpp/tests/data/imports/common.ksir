@@ -1,0 +1,12 @@
+KSIR1
+name "common_spec"
+default_endian le
+imports 1
+import "types/base.ksir"
+types 1
+type "common_u" user "base_u"
+attrs 0
+enums 0
+instances 0
+validations 0
+end

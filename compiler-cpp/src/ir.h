@@ -117,6 +117,7 @@ struct Validation {
 struct Spec {
   std::string name;
   Endian default_endian = Endian::kLe;
+  std::vector<std::string> imports;
   std::vector<TypeDef> types;
   std::vector<Attr> attrs;
   std::vector<EnumDef> enums;
@@ -131,8 +132,11 @@ struct ValidationResult {
 
 ValidationResult Validate(const Spec& spec);
 std::string Serialize(const Spec& spec);
-ValidationResult Deserialize(const std::string& encoded, Spec* out);
+ValidationResult Deserialize(const std::string& encoded, Spec* out, bool validate = true);
 ValidationResult LoadFromFile(const std::string& path, Spec* out);
+ValidationResult LoadFromFileWithImports(const std::string& path,
+                                         const std::vector<std::string>& import_paths,
+                                         Spec* out);
 
 } // namespace kscpp::ir
 
