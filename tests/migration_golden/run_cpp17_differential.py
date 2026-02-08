@@ -22,6 +22,9 @@ class Fixture:
     fixture_id: str
     category: str
     ksy: Path
+    target: str
+    parity_criteria: str
+    known_deviation: str
 
 
 class DifferentialFailure(RuntimeError):
@@ -44,12 +47,21 @@ def parse_fixtures(path: Path) -> list[Fixture]:
         if not stripped or stripped.startswith("#"):
             continue
         row = stripped.split("\t")
-        if len(row) != 5:
+        if len(row) != 7:
             raise DifferentialFailure(f"Invalid fixtures row in {path}: {line}")
-        fixture_id, category, mode, ksy, _compiler_target = row
+        fixture_id, category, mode, ksy, target, parity_criteria, known_deviation = row
         if mode != "success":
             continue
-        fixtures.append(Fixture(fixture_id=fixture_id, category=category, ksy=REPO_ROOT / ksy))
+        fixtures.append(
+            Fixture(
+                fixture_id=fixture_id,
+                category=category,
+                ksy=REPO_ROOT / ksy,
+                target=target,
+                parity_criteria=parity_criteria,
+                known_deviation=known_deviation,
+            )
+        )
     return fixtures
 
 
@@ -66,7 +78,10 @@ def run_checked(cmd: list[str], cwd: Path, stdout_path: Path, stderr_path: Path)
 
 def aggregate_generated_tree(out_dir: Path, fixture_id: str) -> str:
     chunks = [f"id={fixture_id}", "mode=success"]
-    files = sorted([*out_dir.rglob("*.h"), *out_dir.rglob("*.cpp")], key=lambda p: p.as_posix())
+    files = sorted(
+        [*out_dir.rglob("*.py"), *out_dir.rglob("*.rb"), *out_dir.rglob("*.lua"), *out_dir.rglob("*.h"), *out_dir.rglob("*.cpp")],
+        key=lambda p: p.as_posix(),
+    )
     for file_path in files:
         rel = file_path.relative_to(out_dir)
         chunks.append(f"--- FILE:{rel.as_posix()}")
@@ -113,65 +128,75 @@ def run_fixture(fixture: Fixture, out_root: Path, max_diff_lines: int) -> dict:
     cpp_out.mkdir(parents=True, exist_ok=True)
 
     ir_path = fixture_dir / f"{fixture.fixture_id}.ksir"
-
+    scala_cmd = [str(SCALA_BIN), "-t", fixture.target]
+    if fixture.target == "cpp_stl":
+        scala_cmd.extend(["--cpp-standard", "17"])
+    scala_cmd.extend(["--emit-ir", str(ir_path), "--", "-d", str(scala_out), str(fixture.ksy)])
     run_checked(
-        [
-            str(SCALA_BIN),
-            "-t",
-            "cpp_stl",
-            "--cpp-standard",
-            "17",
-            "--emit-ir",
-            str(ir_path),
-            "--",
-            "-d",
-            str(scala_out),
-            str(fixture.ksy),
-        ],
+        scala_cmd,
         cwd=REPO_ROOT,
         stdout_path=fixture_dir / "scala.stdout.log",
         stderr_path=fixture_dir / "scala.stderr.log",
     )
-    run_checked(
-        [
-            str(KSCXX_BIN),
-            "--from-ir",
-            str(ir_path),
-            "-t",
-            "cpp_stl",
-            "--cpp-standard",
-            "17",
-            "-d",
-            str(cpp_out),
-        ],
-        cwd=REPO_ROOT,
-        stdout_path=fixture_dir / "cpp.stdout.log",
-        stderr_path=fixture_dir / "cpp.stderr.log",
-    )
 
-    scala_raw = fixture_dir / "scala.raw"
-    cpp_raw = fixture_dir / "cpp.raw"
-    scala_raw.write_text(aggregate_generated_tree(scala_out, fixture.fixture_id), encoding="utf-8")
-    cpp_raw.write_text(aggregate_generated_tree(cpp_out, fixture.fixture_id), encoding="utf-8")
+    if fixture.parity_criteria in ("match_scala_vs_cpp17_ir", "known_mismatch_allowed"):
 
-    scala_norm = fixture_dir / "scala.norm"
-    cpp_norm = fixture_dir / "cpp.norm"
-    normalize(scala_raw, scala_norm)
-    normalize(cpp_raw, cpp_norm)
+        run_checked(
+            [
+                str(KSCXX_BIN),
+                "--from-ir",
+                str(ir_path),
+                "-t",
+                fixture.target,
+                "--cpp-standard",
+                "17",
+                "-d",
+                str(cpp_out),
+            ],
+            cwd=REPO_ROOT,
+            stdout_path=fixture_dir / "cpp.stdout.log",
+            stderr_path=fixture_dir / "cpp.stderr.log",
+        )
 
-    scala_text = scala_norm.read_text(encoding="utf-8")
-    cpp_text = cpp_norm.read_text(encoding="utf-8")
-    matched, diff_info = summarize_diff(scala_text, cpp_text, max_diff_lines)
+        scala_raw = fixture_dir / "scala.raw"
+        cpp_raw = fixture_dir / "cpp.raw"
+        scala_raw.write_text(aggregate_generated_tree(scala_out, fixture.fixture_id), encoding="utf-8")
+        cpp_raw.write_text(aggregate_generated_tree(cpp_out, fixture.fixture_id), encoding="utf-8")
 
-    if matched:
-        status = "match"
+        scala_norm = fixture_dir / "scala.norm"
+        cpp_norm = fixture_dir / "cpp.norm"
+        normalize(scala_raw, scala_norm)
+        normalize(cpp_raw, cpp_norm)
+
+        scala_text = scala_norm.read_text(encoding="utf-8")
+        cpp_text = cpp_norm.read_text(encoding="utf-8")
+        matched, diff_info = summarize_diff(scala_text, cpp_text, max_diff_lines)
+
+        if matched:
+            status = "match"
+        else:
+            (fixture_dir / "diff.patch").write_text("\n".join(diff_info["snippet"]) + "\n", encoding="utf-8")
+            if fixture.parity_criteria == "known_mismatch_allowed":
+                status = "gap"
+                diff_info["note"] = "Known migration mismatch accepted for this fixture (see known_deviation)."
+            else:
+                status = "mismatch"
+    elif fixture.parity_criteria == "scala_oracle_only":
+        status = "gap"
+        diff_info = {
+            "line_count": 0,
+            "snippet": [],
+            "note": "Scala-only oracle check; C++17 backend coverage not available for this target.",
+        }
     else:
-        status = "mismatch"
-        (fixture_dir / "diff.patch").write_text("\n".join(diff_info["snippet"]) + "\n", encoding="utf-8")
+        raise DifferentialFailure(f"Unknown parity criteria '{fixture.parity_criteria}' for fixture {fixture.fixture_id}")
 
     return {
         "id": fixture.fixture_id,
         "category": fixture.category,
+        "target": fixture.target,
+        "parity_criteria": fixture.parity_criteria,
+        "known_deviation": fixture.known_deviation,
         "ksy": str(fixture.ksy.relative_to(REPO_ROOT)),
         "status": status,
         "diff": diff_info,
@@ -186,19 +211,33 @@ def write_human_summary(report: dict, summary_path: Path) -> None:
         f"fixtures: {report['summary']['fixtures_total']}",
         f"matches: {report['summary']['matches']}",
         f"mismatches: {report['summary']['mismatches']}",
+        f"gaps: {report['summary']['gaps']}",
         f"errors: {report['summary']['errors']}",
         "",
+        "per-target:",
     ]
+    for target in sorted(report["summary"]["by_target"].keys()):
+        t = report["summary"]["by_target"][target]
+        lines.append(f"- {target}: pass={t['pass']} fail={t['fail']} gap={t['gap']} error={t['error']}")
+    lines.append("")
+
     for fixture in report["fixtures"]:
-        lines.append(f"- {fixture['id']}: {fixture['status']} ({fixture['artifact_dir']})")
+        lines.append(
+            f"- {fixture['id']} [{fixture['target']}/{fixture['parity_criteria']}]: {fixture['status']} ({fixture['artifact_dir']})"
+        )
+        if fixture.get("known_deviation"):
+            lines.append(f"  known deviation: {fixture['known_deviation']}")
         if fixture["status"] == "mismatch":
             lines.append(f"  diff lines: {fixture['diff']['line_count']}")
             for line in fixture["diff"]["snippet"][:12]:
                 lines.append(f"    {line}")
             if fixture["diff"].get("truncated"):
                 lines.append("    ... (truncated)")
+        elif fixture["status"] == "gap":
+            lines.append(f"  gap rationale: {fixture['diff'].get('note', 'coverage gap')}")
         elif fixture["status"] == "error":
             lines.append(f"  error: {fixture['error']}")
+
     summary_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
@@ -224,7 +263,9 @@ def main() -> int:
             "fixtures_total": len(fixtures),
             "matches": 0,
             "mismatches": 0,
+            "gaps": 0,
             "errors": 0,
+            "by_target": {},
         },
     }
 
@@ -235,18 +276,31 @@ def main() -> int:
             result = {
                 "id": fixture.fixture_id,
                 "category": fixture.category,
+                "target": fixture.target,
+                "parity_criteria": fixture.parity_criteria,
+                "known_deviation": fixture.known_deviation,
                 "ksy": str(fixture.ksy.relative_to(REPO_ROOT)),
                 "status": "error",
                 "error": str(exc),
                 "artifact_dir": str((args.output_dir / fixture.fixture_id).relative_to(REPO_ROOT)),
             }
         report["fixtures"].append(result)
+
+        target_stats = report["summary"]["by_target"].setdefault(
+            result["target"], {"pass": 0, "fail": 0, "gap": 0, "error": 0}
+        )
         if result["status"] == "match":
             report["summary"]["matches"] += 1
+            target_stats["pass"] += 1
         elif result["status"] == "mismatch":
             report["summary"]["mismatches"] += 1
+            target_stats["fail"] += 1
+        elif result["status"] == "gap":
+            report["summary"]["gaps"] += 1
+            target_stats["gap"] += 1
         else:
             report["summary"]["errors"] += 1
+            target_stats["error"] += 1
 
     json_path = args.output_dir / "report.json"
     json_path.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")

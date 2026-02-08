@@ -50,6 +50,15 @@ This directory tracks the staged migration plan for introducing a C++17 implemen
 > **Explicit policy:** Scala remains the default and required compiler implementation throughout this migration until a later, explicit flip commit is approved.
 
 
+## Target differential coverage (active fork targets)
+
+The migration differential fixture inventory (`tests/migration_golden/cpp17_differential_fixtures.tsv`) includes one representative fixture per active target in this fork:
+
+- `cpp_stl`: Scala-vs-C++17(IR) differential check with an explicitly documented known mismatch allowance where output is semantically equivalent but textually different.
+- `lua`, `wireshark_lua`, `python`, `ruby`: Scala oracle checks with explicit gap/deviation annotations until equivalent C++17 emitters exist.
+
+This keeps Scala as the source of truth where C++17 coverage is intentionally incomplete, while still surfacing per-target pass/fail/gap counts in the differential report.
+
 ## C++17 backend migration matrix (current experimental slice)
 
 | Feature area | Scala path | C++17 path (opt-in) |
