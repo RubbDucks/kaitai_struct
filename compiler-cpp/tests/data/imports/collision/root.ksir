@@ -1,0 +1,12 @@
+KSIR1
+name "collision_root"
+default_endian le
+imports 2
+import "a.ksir"
+import "b.ksir"
+types 0
+attrs 0
+enums 0
+instances 0
+validations 0
+end

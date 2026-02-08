@@ -1,0 +1,12 @@
+KSIR1
+name "payload_spec"
+default_endian le
+imports 1
+import "../types/extra.ksir"
+types 1
+type "payload_t" user "extra_t"
+attrs 0
+enums 0
+instances 0
+validations 0
+end

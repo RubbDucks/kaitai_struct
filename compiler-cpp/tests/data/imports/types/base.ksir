@@ -1,0 +1,11 @@
+KSIR1
+name "base_spec"
+default_endian le
+imports 0
+types 1
+type "base_u" primitive "u4"
+attrs 0
+enums 0
+instances 0
+validations 0
+end

@@ -1,6 +1,7 @@
 #include "ir.h"
 
 #include <fstream>
+#include <filesystem>
 #include <functional>
 #include <iomanip>
 #include <sstream>
@@ -285,6 +286,42 @@ ValidationResult ParseTypeRef(std::istringstream* in, TypeRef* out) {
   return {false, "unknown type reference kind: " + kind};
 }
 
+std::string NormalizeImportPath(const std::string& import_name) {
+  std::string out = import_name;
+  for (char& c : out) {
+    if (c == '\\') c = '/';
+  }
+  return out;
+}
+
+ValidationResult ResolveImportPath(const std::string& import_name,
+                                   const std::filesystem::path& current_file,
+                                   const std::vector<std::string>& import_paths,
+                                   std::filesystem::path* resolved) {
+  const std::filesystem::path normalized(NormalizeImportPath(import_name));
+  std::vector<std::filesystem::path> candidates;
+  if (normalized.is_absolute()) {
+    candidates.push_back(normalized);
+  } else {
+    candidates.push_back(current_file.parent_path() / normalized);
+    for (const auto& base : import_paths) {
+      if (!base.empty()) {
+        candidates.push_back(std::filesystem::path(base) / normalized);
+      }
+    }
+  }
+
+  for (const auto& candidate : candidates) {
+    std::error_code ec;
+    auto canon = std::filesystem::weakly_canonical(candidate, ec);
+    if (!ec && std::filesystem::exists(canon)) {
+      *resolved = canon;
+      return {true, ""};
+    }
+  }
+  return {false, "failed to resolve import: " + import_name + " from " + current_file.string()};
+}
+
 } // namespace
 
 Expr Expr::Int(long long value) {
@@ -519,6 +556,10 @@ std::string Serialize(const Spec& spec) {
   out << "KSIR1\n";
   out << "name " << std::quoted(spec.name) << "\n";
   out << "default_endian " << EndianToString(spec.default_endian) << "\n";
+  out << "imports " << spec.imports.size() << "\n";
+  for (const auto& imp : spec.imports) {
+    out << "import " << std::quoted(imp) << "\n";
+  }
 
   out << "types " << spec.types.size() << "\n";
   for (const auto& t : spec.types) {
@@ -568,7 +609,7 @@ std::string Serialize(const Spec& spec) {
   return out.str();
 }
 
-ValidationResult Deserialize(const std::string& encoded, Spec* out) {
+ValidationResult Deserialize(const std::string& encoded, Spec* out, bool validate) {
   std::istringstream in(encoded);
   std::string line;
 
@@ -612,9 +653,40 @@ ValidationResult Deserialize(const std::string& encoded, Spec* out) {
   };
 
   size_t count = 0;
-  auto res = parse_count("types", &count);
-  if (!res.ok)
-    return res;
+  if (!std::getline(in, line))
+    return {false, "missing section header: imports/types"};
+  out->imports.clear();
+  {
+    std::istringstream row(line);
+    std::string key;
+    size_t section_count = 0;
+    if (!(row >> key >> section_count)) {
+      return {false, "invalid section header: imports/types"};
+    }
+    if (key == "imports") {
+      count = section_count;
+      for (size_t i = 0; i < count; i++) {
+        if (!std::getline(in, line))
+          return {false, "truncated import section"};
+        std::istringstream import_row(line);
+        std::string import_key;
+        std::string import_name;
+        if (!(import_row >> import_key >> std::quoted(import_name)) || import_key != "import") {
+          return {false, "invalid import row"};
+        }
+        out->imports.push_back(import_name);
+      }
+      auto imports_res = parse_count("types", &count);
+      if (!imports_res.ok)
+        return imports_res;
+    } else if (key == "types") {
+      count = section_count;
+    } else {
+      return {false, "invalid section header: imports/types"};
+    }
+  }
+
+  ValidationResult res{true, ""};
   out->types.clear();
   for (size_t i = 0; i < count; i++) {
     if (!std::getline(in, line))
@@ -819,7 +891,8 @@ ValidationResult Deserialize(const std::string& encoded, Spec* out) {
     return {false, "missing end marker"};
   }
 
-  return Validate(*out);
+  if (validate) return Validate(*out);
+  return {true, ""};
 }
 
 ValidationResult LoadFromFile(const std::string& path, Spec* out) {
@@ -829,7 +902,139 @@ ValidationResult LoadFromFile(const std::string& path, Spec* out) {
   }
   std::ostringstream buffer;
   buffer << in.rdbuf();
-  return Deserialize(buffer.str(), out);
+  return Deserialize(buffer.str(), out, true);
+}
+
+ValidationResult LoadFromFileWithImports(const std::string& path,
+                                         const std::vector<std::string>& import_paths,
+                                         Spec* out) {
+  std::error_code ec;
+  const std::filesystem::path root = std::filesystem::weakly_canonical(path, ec);
+  if (ec) {
+    return {false, "failed to canonicalize IR file path: " + path};
+  }
+
+  std::unordered_map<std::string, Spec> loaded;
+  std::unordered_set<std::string> visiting;
+  std::vector<std::string> stack;
+
+  std::function<ValidationResult(const std::filesystem::path&)> dfs =
+      [&](const std::filesystem::path& file_path) -> ValidationResult {
+    const std::string file_key = file_path.string();
+    if (loaded.find(file_key) != loaded.end()) {
+      return {true, ""};
+    }
+    if (!visiting.insert(file_key).second) {
+      std::string chain;
+      for (const auto& n : stack) {
+        if (!chain.empty()) chain += " -> ";
+        chain += n;
+      }
+      if (!chain.empty()) chain += " -> ";
+      chain += file_key;
+      return {false, "import cycle detected: " + chain};
+    }
+    stack.push_back(file_key);
+
+    Spec current;
+    auto load = ValidationResult{false, ""};
+    {
+      std::ifstream in(file_key, std::ios::binary);
+      if (!in) {
+        stack.pop_back();
+        visiting.erase(file_key);
+        return {false, "failed to open IR file: " + file_key};
+      }
+      std::ostringstream buffer;
+      buffer << in.rdbuf();
+      load = Deserialize(buffer.str(), &current, false);
+    }
+    if (!load.ok) {
+      stack.pop_back();
+      visiting.erase(file_key);
+      return load;
+    }
+
+    for (const auto& imp : current.imports) {
+      std::filesystem::path resolved;
+      auto resolve = ResolveImportPath(imp, file_path, import_paths, &resolved);
+      if (!resolve.ok) {
+        stack.pop_back();
+        visiting.erase(file_key);
+        return resolve;
+      }
+      auto child = dfs(resolved);
+      if (!child.ok) {
+        stack.pop_back();
+        visiting.erase(file_key);
+        return child;
+      }
+    }
+
+    loaded[file_key] = current;
+    stack.pop_back();
+    visiting.erase(file_key);
+    return {true, ""};
+  };
+
+  auto walk = dfs(root);
+  if (!walk.ok) {
+    return walk;
+  }
+
+  Spec merged = loaded[root.string()];
+  std::unordered_set<std::string> merged_files;
+  std::unordered_set<std::string> seen_type_names;
+  std::unordered_set<std::string> seen_enum_names;
+  seen_type_names.insert(merged.name);
+  for (const auto& t : merged.types) seen_type_names.insert(t.name);
+  for (const auto& e : merged.enums) seen_enum_names.insert(e.name);
+
+  std::function<ValidationResult(const std::filesystem::path&)> merge_deps =
+      [&](const std::filesystem::path& file_path) -> ValidationResult {
+    const Spec& spec = loaded[file_path.string()];
+    for (const auto& imp : spec.imports) {
+      std::filesystem::path resolved;
+      auto resolve = ResolveImportPath(imp, file_path, import_paths, &resolved);
+      if (!resolve.ok) return resolve;
+      const std::string dep_key = resolved.string();
+      if (!merged_files.insert(dep_key).second) {
+        continue;
+      }
+      auto nested = merge_deps(resolved);
+      if (!nested.ok) return nested;
+
+      const Spec& dep = loaded[dep_key];
+      if (!seen_type_names.insert(dep.name).second) {
+        return {false, "duplicate symbol across imports: type " + dep.name};
+      }
+      for (const auto& t : dep.types) {
+        if (!seen_type_names.insert(t.name).second) {
+          return {false, "duplicate symbol across imports: type " + t.name};
+        }
+        merged.types.push_back(t);
+      }
+      for (const auto& e : dep.enums) {
+        if (!seen_enum_names.insert(e.name).second) {
+          return {false, "duplicate symbol across imports: enum " + e.name};
+        }
+        merged.enums.push_back(e);
+      }
+    }
+    return {true, ""};
+  };
+
+  auto merged_ok = merge_deps(root);
+  if (!merged_ok.ok) {
+    return merged_ok;
+  }
+
+  auto valid = Validate(merged);
+  if (!valid.ok) {
+    return valid;
+  }
+  *out = merged;
+  return {true, ""};
 }
 
 } // namespace kscpp::ir

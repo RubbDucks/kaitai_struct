@@ -20,7 +20,8 @@ int main(int argc, char** argv) {
 
   if (!parse.options.from_ir.empty()) {
     kscpp::ir::Spec spec;
-    const auto load_result = kscpp::ir::LoadFromFile(parse.options.from_ir, &spec);
+    const auto load_result =
+        kscpp::ir::LoadFromFileWithImports(parse.options.from_ir, parse.options.import_paths, &spec);
     if (!load_result.ok) {
       std::cerr << "Error: IR validation failed: " << load_result.error << std::endl;
       return 1;
