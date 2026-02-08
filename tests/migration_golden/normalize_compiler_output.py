@@ -14,6 +14,7 @@ def normalize_text(text: str) -> str:
     text = re.sub(r"(?m)^\s*#\s*This is a generated file!.*$", "# <GENERATED_BANNER>", text)
     text = re.sub(r"(?m)^\s*//\s*This is a generated file!.*$", "// <GENERATED_BANNER>", text)
     text = re.sub(r"(?m)^\s*/\*\s*This is a generated file!.*$", "/* <GENERATED_BANNER>", text)
+    text = re.sub(r"(?m)^\s*#include\s+<kaitai/exceptions\.h>\s*$\n?", "", text)
     text = re.sub(r"\n{3,}", "\n\n", text)
     return text.strip() + "\n"
 

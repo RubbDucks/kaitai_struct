@@ -50,7 +50,8 @@ Run an automated differential sweep and emit both JSON + human-readable reports:
 ```bash
 tests/migration_golden/run_cpp17_differential.py \
   --fixtures tests/migration_golden/cpp17_differential_fixtures.tsv \
-  --output-dir tests/test_out/migration_differential
+  --output-dir tests/test_out/migration_differential \
+  --enforce-gate required
 ```
 
 Run migration benchmark harness (fixed corpus, latency + memory metrics, schema-checked report):
@@ -78,6 +79,9 @@ Differential inventory columns:
   - `scala_oracle_only`: Scala compile-only oracle (coverage gap in C++17 path).
   - `known_mismatch_allowed`: run Scala-vs-C++17 diff, but report mismatch as a documented migration gap.
 - `known_deviation`: target-specific rationale for intentional migration gaps.
+- `gate`:
+  - `required`: fixture is migration-blocking when `--enforce-gate required` is used.
+  - `visibility`: fixture remains visible in reports but is non-blocking.
 
 
 - `report.json`: machine-readable report for CI tooling.
