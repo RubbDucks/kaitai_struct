@@ -21,6 +21,7 @@ NORMALIZER = SCRIPT_DIR / "normalize_compiler_output.py"
 class Fixture:
     fixture_id: str
     category: str
+    mode: str
     ksy: Path
     target: str
     parity_criteria: str
@@ -67,12 +68,13 @@ def parse_fixtures(path: Path) -> list[Fixture]:
 
         if gate not in ("required", "visibility"):
             raise DifferentialFailure(f"Invalid fixture gate '{gate}' for fixture {fixture_id} in {path}")
-        if mode != "success":
-            continue
+        if mode not in ("success", "error"):
+            raise DifferentialFailure(f"Invalid fixture mode '{mode}' for fixture {fixture_id} in {path}")
         fixtures.append(
             Fixture(
                 fixture_id=fixture_id,
                 category=category,
+                mode=mode,
                 ksy=REPO_ROOT / ksy,
                 target=target,
                 parity_criteria=parity_criteria,
@@ -92,6 +94,13 @@ def run_checked(cmd: list[str], cwd: Path, stdout_path: Path, stderr_path: Path)
             f"Command failed ({proc.returncode}): {' '.join(cmd)}\n"
             f"See logs: {stdout_path} and {stderr_path}"
         )
+
+
+def run_logged(cmd: list[str], cwd: Path, stdout_path: Path, stderr_path: Path) -> subprocess.CompletedProcess[str]:
+    proc = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True)
+    stdout_path.write_text(proc.stdout, encoding="utf-8")
+    stderr_path.write_text(proc.stderr, encoding="utf-8")
+    return proc
 
 
 def aggregate_generated_tree(out_dir: Path, fixture_id: str) -> str:
@@ -131,6 +140,27 @@ def summarize_diff(scala_text: str, cpp_text: str, max_lines: int) -> tuple[bool
     }
 
 
+def normalize_diagnostic(stderr_text: str, max_lines: int = 12) -> dict:
+    normalized_lines: list[str] = []
+    for line in stderr_text.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        normalized_lines.append(stripped)
+    if not normalized_lines:
+        return {"class": "<empty>", "message": "", "lines": []}
+    first = normalized_lines[0]
+    diag_class, _, diag_message = first.partition(":")
+    if not diag_message:
+        diag_class = "<unclassified>"
+        diag_message = first
+    return {
+        "class": diag_class.strip(),
+        "message": diag_message.strip(),
+        "lines": normalized_lines[:max_lines],
+    }
+
+
 def ensure_tools() -> None:
     if not SCALA_BIN.exists():
         raise DifferentialFailure("Scala stage compiler missing; run tests/build-compiler first")
@@ -145,73 +175,138 @@ def run_fixture(fixture: Fixture, out_root: Path, max_diff_lines: int) -> dict:
     scala_out.mkdir(parents=True, exist_ok=True)
     cpp_out.mkdir(parents=True, exist_ok=True)
 
-    ir_path = fixture_dir / f"{fixture.fixture_id}.ksir"
     scala_cmd = [str(SCALA_BIN), "-t", fixture.target]
     if fixture.target == "cpp_stl":
         scala_cmd.extend(["--cpp-standard", "17"])
-    scala_cmd.extend(["--emit-ir", str(ir_path), "--", "-d", str(scala_out), str(fixture.ksy)])
-    run_checked(
-        scala_cmd,
-        cwd=REPO_ROOT,
-        stdout_path=fixture_dir / "scala.stdout.log",
-        stderr_path=fixture_dir / "scala.stderr.log",
-    )
+    scala_stdout = fixture_dir / "scala.stdout.log"
+    scala_stderr = fixture_dir / "scala.stderr.log"
 
-    if fixture.parity_criteria in ("match_scala_vs_cpp17_ir", "known_mismatch_allowed"):
+    if fixture.mode == "success":
+        ir_path = fixture_dir / f"{fixture.fixture_id}.ksir"
+        scala_cmd.extend(["--emit-ir", str(ir_path), "--", "-d", str(scala_out), str(fixture.ksy)])
+        run_checked(scala_cmd, cwd=REPO_ROOT, stdout_path=scala_stdout, stderr_path=scala_stderr)
 
-        run_checked(
-            [
+        if fixture.parity_criteria in ("match_scala_vs_cpp17_ir", "known_mismatch_allowed"):
+
+            run_checked(
+                [
+                    str(KSCXX_BIN),
+                    "--from-ir",
+                    str(ir_path),
+                    "-t",
+                    fixture.target,
+                    "--cpp-standard",
+                    "17",
+                    "-d",
+                    str(cpp_out),
+                ],
+                cwd=REPO_ROOT,
+                stdout_path=fixture_dir / "cpp.stdout.log",
+                stderr_path=fixture_dir / "cpp.stderr.log",
+            )
+
+            scala_raw = fixture_dir / "scala.raw"
+            cpp_raw = fixture_dir / "cpp.raw"
+            scala_raw.write_text(aggregate_generated_tree(scala_out, fixture.fixture_id), encoding="utf-8")
+            cpp_raw.write_text(aggregate_generated_tree(cpp_out, fixture.fixture_id), encoding="utf-8")
+
+            scala_norm = fixture_dir / "scala.norm"
+            cpp_norm = fixture_dir / "cpp.norm"
+            normalize(scala_raw, scala_norm)
+            normalize(cpp_raw, cpp_norm)
+
+            scala_text = scala_norm.read_text(encoding="utf-8")
+            cpp_text = cpp_norm.read_text(encoding="utf-8")
+            matched, diff_info = summarize_diff(scala_text, cpp_text, max_diff_lines)
+
+            if matched:
+                status = "match"
+            else:
+                (fixture_dir / "diff.patch").write_text("\n".join(diff_info["snippet"]) + "\n", encoding="utf-8")
+                if fixture.parity_criteria == "known_mismatch_allowed":
+                    status = "gap"
+                    diff_info["note"] = "Known migration mismatch accepted for this fixture (see known_deviation)."
+                else:
+                    status = "mismatch"
+        elif fixture.parity_criteria == "scala_oracle_only":
+            status = "gap"
+            diff_info = {
+                "line_count": 0,
+                "snippet": [],
+                "note": "Scala-only oracle check; C++17 backend coverage not available for this target.",
+            }
+        else:
+            raise DifferentialFailure(f"Unknown parity criteria '{fixture.parity_criteria}' for fixture {fixture.fixture_id}")
+    else:
+        scala_cmd.extend(["--", "-d", str(scala_out), str(fixture.ksy)])
+        scala_proc = run_logged(scala_cmd, cwd=REPO_ROOT, stdout_path=scala_stdout, stderr_path=scala_stderr)
+        scala_diag = normalize_diagnostic(scala_proc.stderr)
+        if scala_proc.returncode == 0:
+            raise DifferentialFailure("Expected Scala compiler failure for mode=error fixture, but command succeeded")
+
+        cpp_diag = None
+        cpp_proc = None
+        if fixture.target == "cpp_stl" and fixture.parity_criteria != "scala_oracle_only":
+            cpp_cmd = [
                 str(KSCXX_BIN),
-                "--from-ir",
-                str(ir_path),
+                "file",
                 "-t",
                 fixture.target,
                 "--cpp-standard",
                 "17",
                 "-d",
                 str(cpp_out),
-            ],
-            cwd=REPO_ROOT,
-            stdout_path=fixture_dir / "cpp.stdout.log",
-            stderr_path=fixture_dir / "cpp.stderr.log",
-        )
+                str(fixture.ksy),
+            ]
+            cpp_proc = run_logged(
+                cpp_cmd,
+                cwd=REPO_ROOT,
+                stdout_path=fixture_dir / "cpp.stdout.log",
+                stderr_path=fixture_dir / "cpp.stderr.log",
+            )
+            cpp_diag = normalize_diagnostic(cpp_proc.stderr)
 
-        scala_raw = fixture_dir / "scala.raw"
-        cpp_raw = fixture_dir / "cpp.raw"
-        scala_raw.write_text(aggregate_generated_tree(scala_out, fixture.fixture_id), encoding="utf-8")
-        cpp_raw.write_text(aggregate_generated_tree(cpp_out, fixture.fixture_id), encoding="utf-8")
-
-        scala_norm = fixture_dir / "scala.norm"
-        cpp_norm = fixture_dir / "cpp.norm"
-        normalize(scala_raw, scala_norm)
-        normalize(cpp_raw, cpp_norm)
-
-        scala_text = scala_norm.read_text(encoding="utf-8")
-        cpp_text = cpp_norm.read_text(encoding="utf-8")
-        matched, diff_info = summarize_diff(scala_text, cpp_text, max_diff_lines)
-
-        if matched:
+        if fixture.parity_criteria == "scala_oracle_only":
             status = "match"
-        else:
-            (fixture_dir / "diff.patch").write_text("\n".join(diff_info["snippet"]) + "\n", encoding="utf-8")
-            if fixture.parity_criteria == "known_mismatch_allowed":
+            diff_info = {
+                "line_count": 0,
+                "snippet": [],
+                "note": "Error fixture validated against Scala oracle only.",
+                "scala": scala_diag,
+            }
+        elif fixture.parity_criteria in ("match_scala_vs_cpp17_ir", "known_mismatch_allowed"):
+            if cpp_proc is None:
+                raise DifferentialFailure("C++17 diagnostic parity requested, but C++17 path is not applicable")
+            if cpp_proc.returncode == 0:
+                raise DifferentialFailure("Expected C++17 compiler failure for mode=error fixture, but command succeeded")
+
+            classes_match = scala_diag["class"] == cpp_diag["class"]
+            message_contract_match = scala_diag["message"] == cpp_diag["message"]
+            if classes_match and message_contract_match:
+                status = "match"
+            elif fixture.parity_criteria == "known_mismatch_allowed":
                 status = "gap"
-                diff_info["note"] = "Known migration mismatch accepted for this fixture (see known_deviation)."
             else:
                 status = "mismatch"
-    elif fixture.parity_criteria == "scala_oracle_only":
-        status = "gap"
-        diff_info = {
-            "line_count": 0,
-            "snippet": [],
-            "note": "Scala-only oracle check; C++17 backend coverage not available for this target.",
-        }
-    else:
-        raise DifferentialFailure(f"Unknown parity criteria '{fixture.parity_criteria}' for fixture {fixture.fixture_id}")
+            diff_info = {
+                "line_count": 0,
+                "snippet": [],
+                "scala": scala_diag,
+                "cpp": cpp_diag,
+                "contract": {
+                    "class_match": classes_match,
+                    "message_match": message_contract_match,
+                },
+            }
+            if status == "gap":
+                diff_info["note"] = "Known diagnostic mismatch accepted for this fixture (see known_deviation)."
+        else:
+            raise DifferentialFailure(f"Unknown parity criteria '{fixture.parity_criteria}' for fixture {fixture.fixture_id}")
 
     return {
         "id": fixture.fixture_id,
         "category": fixture.category,
+        "mode": fixture.mode,
         "target": fixture.target,
         "parity_criteria": fixture.parity_criteria,
         "known_deviation": fixture.known_deviation,
@@ -274,7 +369,7 @@ def main() -> int:
 
     fixtures = parse_fixtures(args.fixtures)
     if not fixtures:
-        raise DifferentialFailure(f"No success fixtures found in {args.fixtures}")
+        raise DifferentialFailure(f"No fixtures found in {args.fixtures}")
 
     if args.output_dir.exists():
         shutil.rmtree(args.output_dir)
@@ -304,6 +399,7 @@ def main() -> int:
             result = {
                 "id": fixture.fixture_id,
                 "category": fixture.category,
+                "mode": fixture.mode,
                 "target": fixture.target,
                 "parity_criteria": fixture.parity_criteria,
                 "known_deviation": fixture.known_deviation,
