@@ -51,6 +51,7 @@ struct ParseResult {
 };
 
 ParseResult ParseCommandLine(int argc, char** argv);
+std::string ValidateBackendCompatibility(const CliOptions& options);
 std::string HelpText();
 std::string VersionText();
 

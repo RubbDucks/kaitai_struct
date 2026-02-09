@@ -89,6 +89,12 @@ int main(int argc, char** argv) {
     return 1;
   }
 
+  const std::string backend_error = kscpp::ValidateBackendCompatibility(parse.options);
+  if (!backend_error.empty()) {
+    std::cerr << "Error: " << backend_error << std::endl;
+    return 1;
+  }
+
   const bool single_target = parse.options.targets.size() == 1;
   const std::string target = single_target ? parse.options.targets[0] : std::string();
   const bool wants_cpp_stl = target == "cpp_stl";
@@ -159,7 +165,6 @@ int main(int argc, char** argv) {
     return 0;
   }
 
-  std::cerr << "Error: native .ksy pipeline currently supports -t cpp_stl --cpp-standard 17 and delegated targets -t lua|wireshark_lua|python|ruby"
-            << std::endl;
+  std::cerr << "Error: internal backend dispatch inconsistency after compatibility validation" << std::endl;
   return 1;
 }

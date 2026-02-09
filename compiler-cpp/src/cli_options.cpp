@@ -62,6 +62,15 @@ bool IsKnownOption(const std::string& arg) {
 
 bool IsBoolValue(const std::string& value) { return value == "true" || value == "false"; }
 
+const std::vector<std::string>& SupportedTargets() {
+  static const std::vector<std::string> supported = {"cpp_stl", "lua", "python", "ruby", "wireshark_lua"};
+  return supported;
+}
+
+bool SupportsReadWriteTarget(const std::string& target) {
+  return target == "cpp_stl" || target == "python";
+}
+
 std::string Join(const std::vector<std::string>& values, const std::string& sep) {
   std::ostringstream out;
   for (size_t i = 0; i < values.size(); i++) {
@@ -369,6 +378,94 @@ ParseResult ParseCommandLine(int argc, char** argv) {
   }
 
   return result;
+}
+
+
+std::string ValidateBackendCompatibility(const CliOptions& options) {
+  if (options.targets.empty()) {
+    return "";
+  }
+
+  if (options.targets.size() != 1) {
+    return "multiple targets are not supported by compiler-cpp backend; specify exactly one target";
+  }
+
+  const std::string& target = options.targets.front();
+  if (std::find(SupportedTargets().begin(), SupportedTargets().end(), target) ==
+      SupportedTargets().end()) {
+    return "target '" + target +
+           "' is accepted by CLI but not implemented in compiler-cpp backend; supported targets are: " +
+           Join(SupportedTargets(), ", ");
+  }
+
+  const bool delegated =
+      target == "lua" || target == "wireshark_lua" || target == "python" || target == "ruby";
+  const bool is_cpp_stl = target == "cpp_stl";
+
+  if (options.runtime.read_write && !SupportsReadWriteTarget(target)) {
+    return "--read-write is not supported for target '" + target +
+           "' in compiler-cpp backend; supported targets are: cpp_stl, python";
+  }
+
+  if (!options.runtime.auto_read && !(options.runtime.read_write || options.runtime.read_pos)) {
+    return "--no-auto-read currently requires --read-write or --read-pos";
+  }
+
+  if (is_cpp_stl) {
+    if (options.runtime.cpp_standard != "17") {
+      return "target 'cpp_stl' currently requires --cpp-standard 17";
+    }
+
+    if (!options.runtime.python_package.empty()) {
+      return "--python-package is only supported with target 'python'";
+    }
+    return "";
+  }
+
+  if (delegated) {
+    if (options.runtime.cpp_standard != "98") {
+      return "--cpp-standard is only supported with target 'cpp_stl'";
+    }
+    if (!options.runtime.cpp_namespace.empty()) {
+      return "--cpp-namespace is only supported with target 'cpp_stl'";
+    }
+    if (!options.runtime.java_package.empty()) {
+      return "--java-package is not supported for delegated targets";
+    }
+    if (!options.runtime.java_from_file_class.empty()) {
+      return "--java-from-file-class is not supported for delegated targets";
+    }
+    if (!options.runtime.dotnet_namespace.empty()) {
+      return "--dotnet-namespace is not supported for delegated targets";
+    }
+    if (!options.runtime.php_namespace.empty()) {
+      return "--php-namespace is not supported for delegated targets";
+    }
+    if (!options.runtime.go_package.empty()) {
+      return "--go-package is not supported for delegated targets";
+    }
+    if (!options.runtime.nim_module.empty()) {
+      return "--nim-module is not supported for delegated targets";
+    }
+    if (!options.runtime.nim_opaque.empty()) {
+      return "--nim-opaque is not supported for delegated targets";
+    }
+    if (options.runtime.opaque_types) {
+      return "--opaque-types is not supported for delegated targets";
+    }
+    if (!options.runtime.zero_copy_substream && !options.runtime.read_write) {
+      return "--zero-copy-substream=false is not supported for delegated targets";
+    }
+
+    if (!options.runtime.python_package.empty() && target != "python") {
+      return "--python-package is only supported with target 'python'";
+    }
+    return "";
+  }
+
+  return "target '" + target +
+         "' is accepted by CLI but not implemented in compiler-cpp backend; supported targets are: " +
+         Join(SupportedTargets(), ", ");
 }
 
 } // namespace kscpp

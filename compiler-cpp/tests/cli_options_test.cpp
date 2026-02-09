@@ -23,6 +23,17 @@ kscpp::ParseResult Parse(const std::vector<std::string>& args) {
   return kscpp::ParseCommandLine(static_cast<int>(argv.size()), argv.data());
 }
 
+bool CheckBackendError(const std::vector<std::string>& args, const std::string& expected_substr,
+                       const std::string& message) {
+  const auto r = Parse(args);
+  if (r.status != kscpp::ParseStatus::kOk) {
+    return Check(false, message + " (parse failed unexpectedly)");
+  }
+  const std::string backend_error = kscpp::ValidateBackendCompatibility(r.options);
+  return Check(backend_error.find(expected_substr) != std::string::npos,
+               message + " (actual: " + backend_error + ")");
+}
+
 } // namespace
 
 int main() {
@@ -43,24 +54,25 @@ int main() {
   }
 
   {
-    auto r = Parse({"kscpp", "-t", "python", "--read-write", "--debug", "--cpp-standard", "17",
-                    "--import-path", "a:b", "in.ksy"});
+    auto r = Parse({"kscpp", "-t", "python", "--read-write", "--debug", "--import-path", "a:b",
+                    "in.ksy"});
     ok &= Check(r.status == kscpp::ParseStatus::kOk, "valid parse status");
     ok &= Check(r.options.targets.size() == 1 && r.options.targets[0] == "python", "target parsed");
     ok &= Check(!r.options.runtime.auto_read, "auto_read disabled by debug/read-write");
     ok &= Check(r.options.runtime.read_pos, "debug enables read_pos");
     ok &= Check(!r.options.runtime.zero_copy_substream, "read-write disables zero-copy substream");
-    ok &= Check(r.options.runtime.cpp_standard == "17", "cpp-standard parsed");
     ok &= Check(r.options.import_paths.size() == 2, "import-path split");
     ok &= Check(r.options.src_files.size() == 1 && r.options.src_files[0] == "in.ksy",
                 "input file parsed");
+    ok &= Check(kscpp::ValidateBackendCompatibility(r.options).empty(),
+                "python read-write/debug combination accepted by backend");
   }
 
   {
-    auto r = Parse({"kscpp", "--from-ir", "sample.ksir"});
-    ok &= Check(r.status == kscpp::ParseStatus::kOk, "from-ir parse status");
-    ok &= Check(r.options.from_ir == "sample.ksir", "from-ir path parsed");
-    ok &= Check(r.options.targets.empty(), "from-ir mode allows omitted target");
+    auto r = Parse({"kscpp", "--from-ir", "sample.ksir", "-t", "cpp_stl", "--cpp-standard", "17"});
+    ok &= Check(r.status == kscpp::ParseStatus::kOk, "from-ir parse status with target");
+    ok &= Check(kscpp::ValidateBackendCompatibility(r.options).empty(),
+                "from-ir cpp_stl 17 accepted by backend");
   }
 
   {
@@ -86,6 +98,41 @@ int main() {
   {
     auto r = Parse({"kscpp", "in.ksy"});
     ok &= Check(r.status == kscpp::ParseStatus::kError, "missing target rejected");
+  }
+
+  ok &= CheckBackendError({"kscpp", "-t", "all", "in.ksy"},
+                          "not implemented in compiler-cpp backend",
+                          "accepted CLI target 'all' is fail-fast rejected by backend");
+
+  ok &= CheckBackendError({"kscpp", "-t", "cpp_stl", "--cpp-standard", "98", "in.ksy"},
+                          "requires --cpp-standard 17",
+                          "cpp_stl requires cpp17 in backend");
+
+  ok &= CheckBackendError({"kscpp", "-t", "ruby", "--read-write", "in.ksy"},
+                          "--read-write is not supported for target 'ruby'",
+                          "--read-write target interaction rejected for ruby");
+
+  ok &= CheckBackendError({"kscpp", "-t", "python", "--no-auto-read", "in.ksy"},
+                          "--no-auto-read currently requires --read-write or --read-pos",
+                          "--no-auto-read alone rejected consistently");
+
+  ok &= CheckBackendError({"kscpp", "-t", "lua", "--python-package", "pkg", "in.ksy"},
+                          "--python-package is only supported with target 'python'",
+                          "python-package rejected for non-python delegated target");
+
+  {
+    auto r = Parse({"kscpp", "-t", "python", "--no-auto-read", "--read-pos", "in.ksy"});
+    ok &= Check(r.status == kscpp::ParseStatus::kOk, "python no-auto-read+read-pos parse status");
+    ok &= Check(kscpp::ValidateBackendCompatibility(r.options).empty(),
+                "--no-auto-read + --read-pos accepted");
+  }
+
+  {
+    auto r = Parse({"kscpp", "-t", "python", "-t", "ruby", "in.ksy"});
+    ok &= Check(r.status == kscpp::ParseStatus::kOk, "multi-target parse status");
+    const std::string backend_error = kscpp::ValidateBackendCompatibility(r.options);
+    ok &= Check(backend_error.find("multiple targets are not supported") != std::string::npos,
+                "multi-target rejected by backend compatibility validator");
   }
 
   return ok ? 0 : 1;
