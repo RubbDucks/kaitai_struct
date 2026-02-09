@@ -7,6 +7,7 @@
 - Snapshot generator: `generate_scala_snapshots.sh`
 - Text normalizer: `normalize_compiler_output.py`
 - Differential runner (Scala vs C++17 IR backend): `run_cpp17_differential.py`
+- Gate/documentation drift lint: `validate_cpp17_gate_examples.py`
 - Baseline snapshots (Scala): `scala/*.snapshot`
 
 Regenerate Scala baselines:
@@ -57,7 +58,7 @@ tests/migration_golden/run_cpp17_differential.py \
 ```
 
 
-Run default-flip readiness review gates (checklist mapping + differential + benchmarks):
+Run default-flip readiness review gates (checklist mapping + gate-example drift lint + differential + benchmarks):
 
 ```bash
 tests/ci-cpp17-readiness-review

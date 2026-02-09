@@ -7,6 +7,8 @@ BUILD_SUMMARY="$OUT_DIR/build-formats-cpp_stl-summary.json"
 
 mkdir -p "$OUT_DIR"
 
+"$ROOT_DIR/tests/migration_golden/validate_cpp17_gate_examples.py"
+
 echo "[ci-cpp17-differential] generating cpp_stl formats with cpp17 engine"
 BUILD_FORMATS_SUMMARY_PATH="$BUILD_SUMMARY" KAITAI_COMPILER_ENGINE=cpp17 "$ROOT_DIR/tests/build-formats" cpp_stl
 python3 "$ROOT_DIR/tests/migration_golden/require_build_formats_summary.py"   "$BUILD_SUMMARY" --expect-engine cpp17 --expect-target cpp_stl
