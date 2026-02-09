@@ -343,6 +343,15 @@ std::string CppStorageType(const ir::Attr& attr) {
   if (attr.repeat != ir::Attr::RepeatKind::kNone) return "std::vector<" + base + ">";
   return base;
 }
+
+std::string CppAccessorType(const ir::Attr& attr) {
+  const std::string storage = CppStorageType(attr);
+  if (attr.repeat != ir::Attr::RepeatKind::kNone) return "const " + storage + "&";
+  if (attr.type.primitive == ir::PrimitiveType::kBytes || attr.type.primitive == ir::PrimitiveType::kStr) {
+    return "const " + storage + "&";
+  }
+  return storage;
+}
 std::string CppFieldType(ir::PrimitiveType primitive) {
   switch (primitive) {
   case ir::PrimitiveType::kU1: return "uint8_t";
@@ -429,7 +438,7 @@ std::string RenderHeader(const ir::Spec& spec) {
   out << "public:\n";
   out << "    ~" << spec.name << "_t();\n";
   for (const auto& inst : spec.instances) out << "    " << CppExprType(instance_types.at(inst.id)) << " " << inst.id << "();\n";
-  for (const auto& attr : spec.attrs) out << "    const " << CppStorageType(attr) << "& " << attr.id << "() const { return m_" << attr.id << "; }\n";
+  for (const auto& attr : spec.attrs) out << "    " << CppAccessorType(attr) << " " << attr.id << "() const { return m_" << attr.id << "; }\n";
   out << "    " << spec.name << "_t* _root() const { return m__root; }\n";
   out << "    kaitai::kstruct* _parent() const { return m__parent; }\n\n";
   out << "private:\n";
@@ -477,35 +486,39 @@ std::string RenderSource(const ir::Spec& spec) {
 
   out << "void " << spec.name << "_t::_read() {\n";
   for (const auto& attr : spec.attrs) {
-    const std::string cond = attr.if_expr.has_value() ? RenderExpr(*attr.if_expr, attr_names, {}, -1) : "true";
-    out << "    if (" << cond << ") {\n";
+    if (attr.if_expr.has_value()) {
+      const std::string cond = RenderExpr(*attr.if_expr, attr_names, {}, -1);
+      out << "    if (" << cond << ") {\n";
+    }
+    const std::string indent = attr.if_expr.has_value() ? "        " : "    ";
+    const std::string nested_indent = attr.if_expr.has_value() ? "            " : "        ";
     if (attr.repeat == ir::Attr::RepeatKind::kNone) {
       if (attr.switch_on.has_value()) {
-        out << "        m_" << attr.id << " = " << ReadSwitchExpr(attr, spec.default_endian, attr_names, {}) << ";\n";
+        out << indent << "m_" << attr.id << " = " << ReadSwitchExpr(attr, spec.default_endian, attr_names, {}) << ";\n";
       } else {
-        out << "        m_" << attr.id << " = " << ReadExpr(attr, spec.default_endian) << ";\n";
+        out << indent << "m_" << attr.id << " = " << ReadExpr(attr, spec.default_endian) << ";\n";
       }
     } else if (attr.repeat == ir::Attr::RepeatKind::kEos) {
-      out << "        while (!m__io->is_eof()) {\n";
-      if (attr.switch_on.has_value()) out << "            m_" << attr.id << ".push_back(" << ReadSwitchExpr(attr, spec.default_endian, attr_names, {}) << ");\n";
-      else out << "            m_" << attr.id << ".push_back(" << ReadExpr(attr, spec.default_endian) << ");\n";
-      out << "        }\n";
+      out << indent << "while (!m__io->is_eof()) {\n";
+      if (attr.switch_on.has_value()) out << nested_indent << "m_" << attr.id << ".push_back(" << ReadSwitchExpr(attr, spec.default_endian, attr_names, {}) << ");\n";
+      else out << nested_indent << "m_" << attr.id << ".push_back(" << ReadExpr(attr, spec.default_endian) << ");\n";
+      out << indent << "}\n";
     } else if (attr.repeat == ir::Attr::RepeatKind::kExpr) {
-      out << "        for (int i = 0; i < " << RenderExpr(*attr.repeat_expr, attr_names, {}, -1) << "; i++) {\n";
-      if (attr.switch_on.has_value()) out << "            m_" << attr.id << ".push_back(" << ReadSwitchExpr(attr, spec.default_endian, attr_names, {}) << ");\n";
-      else out << "            m_" << attr.id << ".push_back(" << ReadExpr(attr, spec.default_endian) << ");\n";
-      out << "        }\n";
+      out << indent << "for (int i = 0; i < " << RenderExpr(*attr.repeat_expr, attr_names, {}, -1) << "; i++) {\n";
+      if (attr.switch_on.has_value()) out << nested_indent << "m_" << attr.id << ".push_back(" << ReadSwitchExpr(attr, spec.default_endian, attr_names, {}) << ");\n";
+      else out << nested_indent << "m_" << attr.id << ".push_back(" << ReadExpr(attr, spec.default_endian) << ");\n";
+      out << indent << "}\n";
     } else {
-      out << "        do {\n";
+      out << indent << "do {\n";
       if (attr.switch_on.has_value()) {
-        out << "            auto repeat_item = " << ReadSwitchExpr(attr, spec.default_endian, attr_names, {}) << ";\n";
+        out << nested_indent << "auto repeat_item = " << ReadSwitchExpr(attr, spec.default_endian, attr_names, {}) << ";\n";
       } else {
-        out << "            auto repeat_item = " << ReadExpr(attr, spec.default_endian) << ";\n";
+        out << nested_indent << "auto repeat_item = " << ReadExpr(attr, spec.default_endian) << ";\n";
       }
-      out << "            m_" << attr.id << ".push_back(repeat_item);\n";
-      out << "        } while (!(" << RenderExpr(*attr.repeat_expr, attr_names, {}, -1, "repeat_item") << "));\n";
+      out << nested_indent << "m_" << attr.id << ".push_back(repeat_item);\n";
+      out << indent << "} while (!(" << RenderExpr(*attr.repeat_expr, attr_names, {}, -1, "repeat_item") << "));\n";
     }
-    out << "    }\n";
+    if (attr.if_expr.has_value()) out << "    }\n";
   }
   std::set<std::string> all_instance_names;
   for (const auto& inst : spec.instances) all_instance_names.insert(inst.id);

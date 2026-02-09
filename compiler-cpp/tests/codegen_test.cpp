@@ -194,7 +194,7 @@ int main() {
     const std::string h = ReadAll(out / "type_subset.h");
     const std::string c = ReadAll(out / "type_subset.cpp");
     ok &= Check(h.find("enum class animal_e") != std::string::npos, "enum emitted");
-    ok &= Check(h.find("const double& f8v() const") != std::string::npos, "float64 accessor emitted");
+    ok &= Check(h.find("double f8v() const") != std::string::npos, "float64 accessor emitted");
     ok &= Check(h.find("const std::string& payload() const") != std::string::npos, "bytes accessor emitted");
     ok &= Check(c.find("m_f4v = m__io->read_f4le();") != std::string::npos, "f4 read emitted");
     ok &= Check(c.find("m_payload = m__io->read_bytes(4);") != std::string::npos, "bytes read emitted");
