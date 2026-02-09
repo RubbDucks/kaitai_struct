@@ -38,10 +38,12 @@ enum class ExprType {
 };
 
 std::string NormalizeOp(const std::string& op) {
-  if (op == "and" || op == "&")
+  if (op == "and")
     return "&&";
-  if (op == "or" || op == "|")
+  if (op == "or")
     return "||";
+  if (op == "xor")
+    return "^";
   if (op == "not")
     return "!";
   return op;
@@ -54,10 +56,14 @@ int ExprPrecedence(const ir::Expr& expr) {
   const std::string op = NormalizeOp(expr.text);
   if (op == "||") return 10;
   if (op == "&&") return 20;
-  if (op == "==" || op == "!=") return 30;
-  if (op == "<" || op == "<=" || op == ">" || op == ">=") return 40;
-  if (op == "+" || op == "-") return 50;
-  if (op == "*" || op == "/" || op == "%") return 60;
+  if (op == "|") return 30;
+  if (op == "^") return 35;
+  if (op == "&") return 40;
+  if (op == "==" || op == "!=") return 45;
+  if (op == "<" || op == "<=" || op == ">" || op == ">=") return 50;
+  if (op == "<<" || op == ">>") return 55;
+  if (op == "+" || op == "-") return 60;
+  if (op == "*" || op == "/" || op == "%") return 70;
   return 5;
 }
 
@@ -241,11 +247,11 @@ Result ValidateSupportedSubset(const ir::Spec& spec) {
       if (expr.text != "_" && known_names.find(expr.text) == known_names.end()) return {false, "not yet supported: expression name reference outside attrs/instances: " + expr.text};
       return {true, ""};
     case ir::Expr::Kind::kUnary:
-      if (expr.text != "-" && expr.text != "!" && expr.text != "not") return {false, "not yet supported: unary operator \"" + expr.text + "\""};
+      if (expr.text != "-" && expr.text != "!" && expr.text != "not" && expr.text != "~") return {false, "not yet supported: unary operator \"" + expr.text + "\""};
       return validate_expr(*expr.lhs);
     case ir::Expr::Kind::kBinary: {
       static const std::set<std::string> supported_ops = {
-          "+", "-", "*", "/", "%", "==", "!=", ">", ">=", "<", "<=", "&&", "||", "and", "or", "&", "|"};
+          "+", "-", "*", "/", "%", "==", "!=", ">", ">=", "<", "<=", "&&", "||", "and", "or", "&", "|", "^", "xor", "<<", ">>"};
       if (supported_ops.find(expr.text) == supported_ops.end()) return {false, "not yet supported: binary operator \"" + expr.text + "\""};
       auto lhs = validate_expr(*expr.lhs); if (!lhs.ok) return lhs; return validate_expr(*expr.rhs);
     }

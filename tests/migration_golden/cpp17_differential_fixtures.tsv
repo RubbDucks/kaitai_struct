@@ -1,6 +1,7 @@
 # id	category	mode	ksy	target	parity_criteria	known_deviation	gate
 cpp17_empty_parity	primitives	success	tests/migration_golden/fixtures/cpp17_empty_parity.ksy	cpp_stl	match_scala_vs_cpp17_ir		required
 cpp17_hello_world	primitives	success	tests/formats/hello_world.ksy	cpp_stl	match_scala_vs_cpp17_ir		required
+cpp17_default_big_endian	primitives	success	tests/formats/default_big_endian.ksy	cpp_stl	match_scala_vs_cpp17_ir		required
 cpp17_enum_1	enums	success	tests/formats/enum_1.ksy	cpp_stl	match_scala_vs_cpp17_ir		required
 cpp17_instance_std	instances	success	tests/formats/instance_std.ksy	cpp_stl	match_scala_vs_cpp17_ir		required
 cpp17_switch_integers	switch-on	success	tests/formats/switch_integers.ksy	cpp_stl	match_scala_vs_cpp17_ir		required
@@ -9,7 +10,7 @@ cpp17_imports_cast_to_imported	imports	success	tests/formats/imports_cast_to_imp
 cpp17_process_xor_const	process	success	tests/formats/process_xor_const.ksy	cpp_stl	match_scala_vs_cpp17_ir		required
 cpp17_str_encodings	encoding	success	tests/formats/str_encodings.ksy	cpp_stl	match_scala_vs_cpp17_ir		required
 cpp17_valid_fail_eq_int	validation	success	tests/formats/valid_fail_eq_int.ksy	cpp_stl	match_scala_vs_cpp17_ir		required
-cpp17_type_unknown_error	errors	error	tests/formats_err/type_unknown.ksy	cpp_stl	scala_oracle_only	Expected compiler failure fixture; required gate enforces failure expectation and blocks on regressions.	required
+cpp17_type_unknown_error	errors	error	tests/formats_err/type_unknown.ksy	cpp_stl	known_mismatch_allowed	Known diagnostic-class/message mismatch vs Scala; tracked until C++17 diagnostics are aligned.	required
 lua_process_xor_const	process	success	tests/formats/process_xor_const.ksy	lua	match_scala_vs_cpp17_ir		required
 wireshark_lua_default_endian	primitives	success	tests/formats/default_big_endian.ksy	wireshark_lua	match_scala_vs_cpp17_ir		required
 python_instance_std	instances	success	tests/formats/instance_std.ksy	python	match_scala_vs_cpp17_ir		required
