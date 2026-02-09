@@ -13,21 +13,17 @@ if [[ "$default_engine" != "cpp17" ]]; then
   exit 1
 fi
 
-echo "[migration-golden] verifying cpp17 opt-in marker and target guard"
+echo "[migration-golden] verifying cpp17 opt-in marker and active-fork target support"
 set +e
 KAITAI_COMPILER_ENGINE=cpp17 ./tests/build-formats python >/tmp/ks_cpp17_switch.out 2>/tmp/ks_cpp17_switch.err
 status=$?
 set -e
-if [[ $status -eq 0 ]]; then
-  echo "Expected cpp17 build-formats python to fail (unsupported target)" >&2
+if [[ $status -ne 0 ]]; then
+  echo "Expected cpp17 build-formats python to succeed" >&2
   exit 1
 fi
 if ! grep -q "\[compiler-engine\] selected=cpp17" /tmp/ks_cpp17_switch.err; then
   echo "Expected cpp17 telemetry marker in stderr" >&2
-  exit 1
-fi
-if ! grep -q "currently supports only target=cpp_stl" /tmp/ks_cpp17_switch.err; then
-  echo "Expected unsupported-target diagnostic" >&2
   exit 1
 fi
 
