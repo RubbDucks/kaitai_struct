@@ -1,9 +1,12 @@
 KSIR1
 name "unsupported_dynamic_switch"
 default_endian le
-types 0
-attrs 1
-attr "tagged" primitive "u1" none "none" "none" "none" "none" none "none" "(bin \"+\" (name \"tag\") (int 1))" 1 "(int 1)" primitive "u1"
+types 1
+type "word" primitive "u2"
+attrs 3
+attr "tag" primitive "u1" none "none" "none" "none" "none" none "none" "none" 0
+attr "tagged" user "word" none "none" "none" "none" "none" none "none" "(bin \"+\" (name \"tag\") (int 1))" 3 "(bin \"-\" (name \"tag\") (int 1))" user "word" "(bin \"+\" (name \"tag\") (int 1))" user "word" "else" user "word"
+attr "items_until" primitive "u1" none "none" "none" "none" "none" until "(bin \"==\" (name \"tag\") (int 3))" "none" 0
 enums 0
 instances 0
 validations 0

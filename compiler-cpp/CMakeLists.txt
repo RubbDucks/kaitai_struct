@@ -149,5 +149,5 @@ add_test(NAME kscpp_from_ir_codegen_unsupported_dynamic_switch
   COMMAND kscpp --from-ir ${CMAKE_CURRENT_SOURCE_DIR}/tests/data/unsupported_dynamic_switch.ksir -t cpp_stl --cpp-standard 17
 )
 set_tests_properties(kscpp_from_ir_codegen_unsupported_dynamic_switch PROPERTIES
-  WILL_FAIL TRUE
+  PASS_REGULAR_EXPRESSION "IR codegen succeeded"
 )

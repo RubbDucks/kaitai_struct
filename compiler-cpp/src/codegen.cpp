@@ -14,6 +14,23 @@ namespace {
 
 bool EnumNameMatches(const std::string& declared, const std::string& ref);
 
+
+std::optional<ir::PrimitiveType> ResolvePrimitiveType(
+    const ir::TypeRef& ref,
+    const std::map<std::string, ir::TypeRef>& user_types) {
+  if (ref.kind == ir::TypeRef::Kind::kPrimitive) return ref.primitive;
+
+  std::set<std::string> seen;
+  std::string cur = ref.user_type;
+  while (true) {
+    auto it = user_types.find(cur);
+    if (it == user_types.end()) return std::nullopt;
+    if (!seen.insert(cur).second) return std::nullopt;
+    if (it->second.kind == ir::TypeRef::Kind::kPrimitive) return it->second.primitive;
+    cur = it->second.user_type;
+  }
+}
+
 enum class ExprType {
   kInt8,
   kInt32,
@@ -111,6 +128,14 @@ std::string RenderExpr(const ir::Expr& expr, const std::set<std::string>& attrs,
   return "0";
 }
 
+std::map<std::string, ir::TypeRef> BuildUserTypeMap(const ir::Spec& spec) {
+  std::map<std::string, ir::TypeRef> user_types;
+  for (const auto& type : spec.types) {
+    user_types[type.name] = type.type;
+  }
+  return user_types;
+}
+
 std::map<std::string, ExprType> ComputeInstanceTypes(const ir::Spec& spec) {
   std::set<std::string> bool_instances;
   std::map<std::string, ExprType> out;
@@ -123,23 +148,32 @@ std::map<std::string, ExprType> ComputeInstanceTypes(const ir::Spec& spec) {
 }
 
 Result ValidateSupportedSubset(const ir::Spec& spec) {
-  if (!spec.types.empty()) return {false, "not yet supported: type definitions in IR (types section)"};
+  std::map<std::string, ir::TypeRef> user_types;
+  for (const auto& type : spec.types) {
+    user_types[type.name] = type.type;
+  }
+
+  std::function<std::optional<ir::PrimitiveType>(const ir::TypeRef&)> resolve_primitive =
+      [&](const ir::TypeRef& ref) -> std::optional<ir::PrimitiveType> {
+    if (ref.kind == ir::TypeRef::Kind::kPrimitive) return ref.primitive;
+    std::set<std::string> seen;
+    std::string cur = ref.user_type;
+    while (true) {
+      auto it = user_types.find(cur);
+      if (it == user_types.end()) return std::nullopt;
+      if (!seen.insert(cur).second) return std::nullopt;
+      if (it->second.kind == ir::TypeRef::Kind::kPrimitive) return it->second.primitive;
+      cur = it->second.user_type;
+    }
+  };
 
   for (const auto& attr : spec.attrs) {
-    if (attr.type.kind != ir::TypeRef::Kind::kPrimitive) return {false, "not yet supported: user-defined attr types"};
-    if (attr.repeat == ir::Attr::RepeatKind::kUntil && attr.repeat_expr->kind == ir::Expr::Kind::kName && attr.repeat_expr->text != "_") {
-      return {false, "not yet supported: repeat-until dynamic references beyond current item"};
-    }
-    if (attr.switch_on.has_value() && attr.switch_on->kind != ir::Expr::Kind::kName) {
-      return {false, "not yet supported: switch-on dynamic expressions (only field name switch-on supported)"};
-    }
-    if (attr.type.primitive != ir::PrimitiveType::kBytes && attr.type.primitive != ir::PrimitiveType::kStr && attr.size_expr.has_value()) {
-      return {false, "not yet supported: size_expr for this attr type"};
-    }
-    if (attr.encoding.has_value() && attr.type.primitive != ir::PrimitiveType::kStr) {
+    auto resolved_type = resolve_primitive(attr.type);
+    if (!resolved_type.has_value()) return {false, "not yet supported: attr type must resolve to primitive type"};
+    if (attr.encoding.has_value() && resolved_type.value() != ir::PrimitiveType::kStr) {
       return {false, "not yet supported: encoding outside str attrs"};
     }
-    switch (attr.type.primitive) {
+    switch (resolved_type.value()) {
     case ir::PrimitiveType::kU1: case ir::PrimitiveType::kU2: case ir::PrimitiveType::kU4: case ir::PrimitiveType::kU8:
     case ir::PrimitiveType::kS1: case ir::PrimitiveType::kS2: case ir::PrimitiveType::kS4: case ir::PrimitiveType::kS8:
     case ir::PrimitiveType::kF4: case ir::PrimitiveType::kF8: case ir::PrimitiveType::kBytes: case ir::PrimitiveType::kStr:
@@ -157,19 +191,19 @@ Result ValidateSupportedSubset(const ir::Spec& spec) {
   }
 
   for (const auto& attr : spec.attrs) {
+    auto resolved_type = resolve_primitive(attr.type);
+    if (!resolved_type.has_value()) return {false, "not yet supported: attr type must resolve to primitive type"};
     if (attr.switch_on.has_value()) {
       std::optional<ir::PrimitiveType> switch_case_type;
       bool has_else = false;
       for (const auto& c : attr.switch_cases) {
-        if (c.type.kind != ir::TypeRef::Kind::kPrimitive) {
-          return {false, "not yet supported: switch-on user-defined case types"};
+        auto resolved_case = resolve_primitive(c.type);
+        if (!resolved_case.has_value()) {
+          return {false, "not yet supported: switch-on case type must resolve to primitive type"};
         }
-        if (!switch_case_type.has_value()) switch_case_type = c.type.primitive;
-        if (switch_case_type.value() != c.type.primitive) {
+        if (!switch_case_type.has_value()) switch_case_type = resolved_case.value();
+        if (switch_case_type.value() != resolved_case.value()) {
           return {false, "not yet supported: switch-on cases must share one primitive type"};
-        }
-        if (c.match_expr.has_value() && c.match_expr->kind != ir::Expr::Kind::kInt && c.match_expr->kind != ir::Expr::Kind::kName) {
-          return {false, "not yet supported: malformed switch case expression kind"};
         }
         if (!c.match_expr.has_value()) {
           if (has_else) return {false, "not yet supported: malformed switch cases (duplicate else)"};
@@ -185,7 +219,7 @@ Result ValidateSupportedSubset(const ir::Spec& spec) {
       if (!known_enum) {
         return {false, "not yet supported: attr.enum_name references unknown enum"};
       }
-      switch (attr.type.primitive) {
+      switch (resolved_type.value()) {
       case ir::PrimitiveType::kU1: case ir::PrimitiveType::kU2: case ir::PrimitiveType::kU4: case ir::PrimitiveType::kU8:
       case ir::PrimitiveType::kS1: case ir::PrimitiveType::kS2: case ir::PrimitiveType::kS4: case ir::PrimitiveType::kS8:
         break;
@@ -204,7 +238,7 @@ Result ValidateSupportedSubset(const ir::Spec& spec) {
     case ir::Expr::Kind::kBool:
       return {true, ""};
     case ir::Expr::Kind::kName:
-      if (known_names.find(expr.text) == known_names.end()) return {false, "not yet supported: expression name reference outside attrs/instances: " + expr.text};
+      if (expr.text != "_" && known_names.find(expr.text) == known_names.end()) return {false, "not yet supported: expression name reference outside attrs/instances: " + expr.text};
       return {true, ""};
     case ir::Expr::Kind::kUnary:
       if (expr.text != "-" && expr.text != "!" && expr.text != "not") return {false, "not yet supported: unary operator \"" + expr.text + "\""};
@@ -231,6 +265,30 @@ Result ValidateSupportedSubset(const ir::Spec& spec) {
     }
     auto result = validate_expr(validation.condition_expr);
     if (!result.ok) return result;
+  }
+
+  for (const auto& attr : spec.attrs) {
+    if (attr.if_expr.has_value()) {
+      auto result = validate_expr(*attr.if_expr);
+      if (!result.ok) return result;
+    }
+    if (attr.size_expr.has_value()) {
+      auto result = validate_expr(*attr.size_expr);
+      if (!result.ok) return result;
+    }
+    if (attr.repeat_expr.has_value()) {
+      auto result = validate_expr(*attr.repeat_expr);
+      if (!result.ok) return result;
+    }
+    if (attr.switch_on.has_value()) {
+      auto result = validate_expr(*attr.switch_on);
+      if (!result.ok) return result;
+    }
+    for (const auto& c : attr.switch_cases) {
+      if (!c.match_expr.has_value()) continue;
+      auto result = validate_expr(*c.match_expr);
+      if (!result.ok) return result;
+    }
   }
 
   return {true, ""};
@@ -275,16 +333,19 @@ std::string EnumValueName(const std::string& name) {
 std::string CppFieldType(ir::PrimitiveType primitive);
 std::string ReadMethod(ir::PrimitiveType primitive, ir::Endian endian);
 
-std::string SwitchCaseType(const ir::Attr& attr) {
-  if (attr.switch_cases.empty()) return CppFieldType(attr.type.primitive);
-  const auto& t = attr.switch_cases.front().type;
-  if (t.kind != ir::TypeRef::Kind::kPrimitive) return "uint8_t";
-  return CppFieldType(t.primitive);
+std::string SwitchCaseType(const ir::Attr& attr, const std::map<std::string, ir::TypeRef>& user_types) {
+  if (attr.switch_cases.empty()) {
+    auto primitive = ResolvePrimitiveType(attr.type, user_types);
+    return CppFieldType(primitive.value_or(ir::PrimitiveType::kU1));
+  }
+  const auto primitive = ResolvePrimitiveType(attr.switch_cases.front().type, user_types);
+  return CppFieldType(primitive.value_or(ir::PrimitiveType::kU1));
 }
 
-std::string CppAttrType(const ir::Attr& attr) {
+std::string CppAttrType(const ir::Attr& attr, const std::map<std::string, ir::TypeRef>& user_types) {
   if (attr.enum_name.has_value()) return EnumCppTypeName(*attr.enum_name);
-  return CppFieldType(attr.type.primitive);
+  const auto primitive = ResolvePrimitiveType(attr.type, user_types);
+  return CppFieldType(primitive.value_or(ir::PrimitiveType::kU1));
 }
 
 std::string CppReadPrimitiveExpr(ir::PrimitiveType primitive, std::optional<ir::Endian> override_endian,
@@ -294,8 +355,10 @@ std::string CppReadPrimitiveExpr(ir::PrimitiveType primitive, std::optional<ir::
   return "m__io->" + ReadMethod(primitive, override_endian.value_or(default_endian)) + "()";
 }
 
-std::string ReadExpr(const ir::Attr& attr, ir::Endian default_endian) {
-  if (attr.type.primitive == ir::PrimitiveType::kBytes) {
+std::string ReadExpr(const ir::Attr& attr, ir::Endian default_endian,
+                     const std::map<std::string, ir::TypeRef>& user_types) {
+  const auto primitive = ResolvePrimitiveType(attr.type, user_types).value_or(ir::PrimitiveType::kU1);
+  if (primitive == ir::PrimitiveType::kBytes) {
     std::string read = attr.size_expr.has_value() ?
       ("m__io->read_bytes(" + RenderExpr(*attr.size_expr, {}, {}, -1) + ")") :
       "m__io->read_bytes_full()";
@@ -304,48 +367,49 @@ std::string ReadExpr(const ir::Attr& attr, ir::Endian default_endian) {
     }
     return read;
   }
-  if (attr.type.primitive == ir::PrimitiveType::kStr) {
+  if (primitive == ir::PrimitiveType::kStr) {
     if (!attr.size_expr.has_value()) return "std::string()";
     const std::string enc = attr.encoding.value_or("UTF-8");
     return "kaitai::kstream::bytes_to_str(m__io->read_bytes(" + RenderExpr(*attr.size_expr, {}, {}, -1) + "), \"" + enc + "\")";
   }
-  std::string base = CppReadPrimitiveExpr(attr.type.primitive, attr.endian_override, default_endian);
+  std::string base = CppReadPrimitiveExpr(primitive, attr.endian_override, default_endian);
   if (attr.enum_name.has_value()) return "static_cast<" + EnumCppTypeName(*attr.enum_name) + ">(" + base + ")";
   return base;
 }
 
 std::string ReadSwitchExpr(const ir::Attr& attr, ir::Endian default_endian,
-                           const std::set<std::string>& attrs, const std::set<std::string>& instances) {
+                           const std::set<std::string>& attrs, const std::set<std::string>& instances,
+                           const std::map<std::string, ir::TypeRef>& user_types) {
   const std::string on = RenderExpr(*attr.switch_on, attrs, instances, -1);
   std::ostringstream out;
-  bool first = true;
+  out << "([&]() {\n";
+  bool has_else = false;
   for (const auto& c : attr.switch_cases) {
     if (!c.match_expr.has_value()) continue;
-    const std::string cond = on + " == " + RenderExpr(*c.match_expr, attrs, instances, -1);
-    out << (first ? "(" : " : (") << cond << " ? "
-        << CppReadPrimitiveExpr(c.type.primitive, attr.endian_override, default_endian);
-    first = false;
+    const auto case_primitive = ResolvePrimitiveType(c.type, user_types).value_or(ir::PrimitiveType::kU1);
+    out << "        if (" << on << " == " << RenderExpr(*c.match_expr, attrs, instances, -1)
+        << ") return " << CppReadPrimitiveExpr(case_primitive, attr.endian_override, default_endian) << ";\n";
   }
   for (const auto& c : attr.switch_cases) {
-    if (!c.match_expr.has_value()) {
-      out << (first ? "(" : " : ") << CppReadPrimitiveExpr(c.type.primitive, attr.endian_override, default_endian);
-      first = false;
-      break;
-    }
+    if (c.match_expr.has_value()) continue;
+    const auto case_primitive = ResolvePrimitiveType(c.type, user_types).value_or(ir::PrimitiveType::kU1);
+    out << "        return " << CppReadPrimitiveExpr(case_primitive, attr.endian_override, default_endian) << ";\n";
+    has_else = true;
+    break;
   }
-  if (first) out << "(throw std::runtime_error(\"switch-on has no matching case\"), 0)";
-  else out << std::string(first ? "" : ")");
+  if (!has_else) out << "        throw std::runtime_error(\"switch-on has no matching case\");\n";
+  out << "    })()";
   return out.str();
 }
 
-std::string CppStorageType(const ir::Attr& attr) {
-  std::string base = attr.switch_on.has_value() ? SwitchCaseType(attr) : CppAttrType(attr);
+std::string CppStorageType(const ir::Attr& attr, const std::map<std::string, ir::TypeRef>& user_types) {
+  std::string base = attr.switch_on.has_value() ? SwitchCaseType(attr, user_types) : CppAttrType(attr, user_types);
   if (attr.repeat != ir::Attr::RepeatKind::kNone) return "std::vector<" + base + ">";
   return base;
 }
 
-std::string CppAccessorType(const ir::Attr& attr) {
-  const std::string storage = CppStorageType(attr);
+std::string CppAccessorType(const ir::Attr& attr, const std::map<std::string, ir::TypeRef>& user_types) {
+  const std::string storage = CppStorageType(attr, user_types);
   if (attr.repeat != ir::Attr::RepeatKind::kNone) return "const " + storage + "&";
   if (attr.type.primitive == ir::PrimitiveType::kBytes || attr.type.primitive == ir::PrimitiveType::kStr) {
     return "const " + storage + "&";
@@ -394,10 +458,11 @@ bool NeedsVectorInclude(const ir::Spec& spec) {
   return false;
 }
 
-bool NeedsStringInclude(const ir::Spec& spec) {
+bool NeedsStringInclude(const ir::Spec& spec, const std::map<std::string, ir::TypeRef>& user_types) {
   for (const auto& attr : spec.attrs) {
-    if (attr.type.kind == ir::TypeRef::Kind::kPrimitive &&
-        (attr.type.primitive == ir::PrimitiveType::kStr || attr.type.primitive == ir::PrimitiveType::kBytes)) {
+    const auto primitive = ResolvePrimitiveType(attr.type, user_types);
+    if (primitive.has_value() &&
+        (primitive.value() == ir::PrimitiveType::kStr || primitive.value() == ir::PrimitiveType::kBytes)) {
       return true;
     }
   }
@@ -406,6 +471,7 @@ bool NeedsStringInclude(const ir::Spec& spec) {
 
 std::string RenderHeader(const ir::Spec& spec) {
   const auto instance_types = ComputeInstanceTypes(spec);
+  const auto user_types = BuildUserTypeMap(spec);
   std::ostringstream out;
   out << "#pragma once\n\n";
   out << "// This is a generated file! Please edit source .ksy file and use kaitai-struct-compiler to rebuild\n\n";
@@ -414,7 +480,7 @@ std::string RenderHeader(const ir::Spec& spec) {
   out << "#include <kaitai/exceptions.h>\n";
   out << "#include <stdint.h>\n";
   out << "#include <memory>\n";
-  if (NeedsStringInclude(spec)) out << "#include <string>\n";
+  if (NeedsStringInclude(spec, user_types)) out << "#include <string>\n";
   if (NeedsVectorInclude(spec)) out << "#include <vector>\n";
   out << "\n";
   out << "#if KAITAI_STRUCT_VERSION < 11000L\n";
@@ -438,7 +504,7 @@ std::string RenderHeader(const ir::Spec& spec) {
   out << "public:\n";
   out << "    ~" << spec.name << "_t();\n";
   for (const auto& inst : spec.instances) out << "    " << CppExprType(instance_types.at(inst.id)) << " " << inst.id << "();\n";
-  for (const auto& attr : spec.attrs) out << "    " << CppAccessorType(attr) << " " << attr.id << "() const { return m_" << attr.id << "; }\n";
+  for (const auto& attr : spec.attrs) out << "    " << CppAccessorType(attr, user_types) << " " << attr.id << "() const { return m_" << attr.id << "; }\n";
   out << "    " << spec.name << "_t* _root() const { return m__root; }\n";
   out << "    kaitai::kstruct* _parent() const { return m__parent; }\n\n";
   out << "private:\n";
@@ -446,7 +512,7 @@ std::string RenderHeader(const ir::Spec& spec) {
     out << "    bool f_" << inst.id << ";\n";
     out << "    " << CppExprType(instance_types.at(inst.id)) << " m_" << inst.id << ";\n";
   }
-  for (const auto& attr : spec.attrs) out << "    " << CppStorageType(attr) << " m_" << attr.id << ";\n";
+  for (const auto& attr : spec.attrs) out << "    " << CppStorageType(attr, user_types) << " m_" << attr.id << ";\n";
   out << "    " << spec.name << "_t* m__root;\n";
   out << "    kaitai::kstruct* m__parent;\n";
   out << "};\n";
@@ -460,9 +526,10 @@ std::string ValidationValueExpr(const std::string& target, const std::set<std::s
 }
 
 std::string ValidationValueType(const std::string& target, const ir::Spec& spec,
-                                const std::map<std::string, ExprType>& instance_types) {
+                                const std::map<std::string, ExprType>& instance_types,
+                                const std::map<std::string, ir::TypeRef>& user_types) {
   for (const auto& attr : spec.attrs) {
-    if (attr.id == target) return CppStorageType(attr);
+    if (attr.id == target) return CppStorageType(attr, user_types);
   }
   auto it = instance_types.find(target);
   if (it != instance_types.end()) return CppExprType(it->second);
@@ -471,6 +538,7 @@ std::string ValidationValueType(const std::string& target, const ir::Spec& spec,
 
 std::string RenderSource(const ir::Spec& spec) {
   const auto instance_types = ComputeInstanceTypes(spec);
+  const auto user_types = BuildUserTypeMap(spec);
   std::set<std::string> attr_names;
   for (const auto& attr : spec.attrs) attr_names.insert(attr.id);
 
@@ -494,26 +562,26 @@ std::string RenderSource(const ir::Spec& spec) {
     const std::string nested_indent = attr.if_expr.has_value() ? "            " : "        ";
     if (attr.repeat == ir::Attr::RepeatKind::kNone) {
       if (attr.switch_on.has_value()) {
-        out << indent << "m_" << attr.id << " = " << ReadSwitchExpr(attr, spec.default_endian, attr_names, {}) << ";\n";
+        out << indent << "m_" << attr.id << " = " << ReadSwitchExpr(attr, spec.default_endian, attr_names, {}, user_types) << ";\n";
       } else {
-        out << indent << "m_" << attr.id << " = " << ReadExpr(attr, spec.default_endian) << ";\n";
+        out << indent << "m_" << attr.id << " = " << ReadExpr(attr, spec.default_endian, user_types) << ";\n";
       }
     } else if (attr.repeat == ir::Attr::RepeatKind::kEos) {
       out << indent << "while (!m__io->is_eof()) {\n";
-      if (attr.switch_on.has_value()) out << nested_indent << "m_" << attr.id << ".push_back(" << ReadSwitchExpr(attr, spec.default_endian, attr_names, {}) << ");\n";
-      else out << nested_indent << "m_" << attr.id << ".push_back(" << ReadExpr(attr, spec.default_endian) << ");\n";
+      if (attr.switch_on.has_value()) out << nested_indent << "m_" << attr.id << ".push_back(" << ReadSwitchExpr(attr, spec.default_endian, attr_names, {}, user_types) << ");\n";
+      else out << nested_indent << "m_" << attr.id << ".push_back(" << ReadExpr(attr, spec.default_endian, user_types) << ");\n";
       out << indent << "}\n";
     } else if (attr.repeat == ir::Attr::RepeatKind::kExpr) {
       out << indent << "for (int i = 0; i < " << RenderExpr(*attr.repeat_expr, attr_names, {}, -1) << "; i++) {\n";
-      if (attr.switch_on.has_value()) out << nested_indent << "m_" << attr.id << ".push_back(" << ReadSwitchExpr(attr, spec.default_endian, attr_names, {}) << ");\n";
-      else out << nested_indent << "m_" << attr.id << ".push_back(" << ReadExpr(attr, spec.default_endian) << ");\n";
+      if (attr.switch_on.has_value()) out << nested_indent << "m_" << attr.id << ".push_back(" << ReadSwitchExpr(attr, spec.default_endian, attr_names, {}, user_types) << ");\n";
+      else out << nested_indent << "m_" << attr.id << ".push_back(" << ReadExpr(attr, spec.default_endian, user_types) << ");\n";
       out << indent << "}\n";
     } else {
       out << indent << "do {\n";
       if (attr.switch_on.has_value()) {
-        out << nested_indent << "auto repeat_item = " << ReadSwitchExpr(attr, spec.default_endian, attr_names, {}) << ";\n";
+        out << nested_indent << "auto repeat_item = " << ReadSwitchExpr(attr, spec.default_endian, attr_names, {}, user_types) << ";\n";
       } else {
-        out << nested_indent << "auto repeat_item = " << ReadExpr(attr, spec.default_endian) << ";\n";
+        out << nested_indent << "auto repeat_item = " << ReadExpr(attr, spec.default_endian, user_types) << ";\n";
       }
       out << nested_indent << "m_" << attr.id << ".push_back(repeat_item);\n";
       out << indent << "} while (!(" << RenderExpr(*attr.repeat_expr, attr_names, {}, -1, "repeat_item") << "));\n";
@@ -525,7 +593,7 @@ std::string RenderSource(const ir::Spec& spec) {
   for (const auto& validation : spec.validations) {
     const std::string cond = RenderExpr(validation.condition_expr, attr_names, all_instance_names, -1);
     const std::string val_expr = ValidationValueExpr(validation.target, attr_names, all_instance_names);
-    const std::string val_type = ValidationValueType(validation.target, spec, instance_types);
+    const std::string val_type = ValidationValueType(validation.target, spec, instance_types, user_types);
     out << "    if (!(" << cond << ")) {\n";
     out << "        throw kaitai::validation_expr_error<" << val_type << ">(" << val_expr
         << ", m__io, \"/valid/" << validation.target << "\");\n";

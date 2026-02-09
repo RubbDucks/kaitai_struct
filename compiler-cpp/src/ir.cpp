@@ -479,9 +479,6 @@ ValidationResult Validate(const Spec& spec) {
         }
         has_switch_else = true;
       }
-      if (c.type.kind != TypeRef::Kind::kPrimitive) {
-        return {false, "switch case user-defined types are not supported in this migration slice"};
-      }
     }
     if (attr.enum_name.has_value()) {
       if (attr.type.kind != TypeRef::Kind::kPrimitive) {
