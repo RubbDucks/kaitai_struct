@@ -63,10 +63,14 @@ if [ "$KAITAI_COMPILER_ENGINE" = "scala" ]; then
 elif [ "$KAITAI_COMPILER_ENGINE" = "cpp17" ]; then
     echo "[compiler-engine] selected=cpp17 script=build-formats target=$TARGET" >&2
 
-    if [ "$TARGET" != "cpp_stl" ]; then
-        echo "build-formats: cpp17 engine currently supports only target=cpp_stl (got: $TARGET); use KAITAI_COMPILER_ENGINE=scala for other targets" >&2
-        exit 2
-    fi
+    case "$TARGET" in
+        cpp_stl|lua|wireshark_lua|python|ruby)
+            ;;
+        *)
+            echo "build-formats: cpp17 engine currently supports only targets=cpp_stl,lua,wireshark_lua,python,ruby (got: $TARGET); use KAITAI_COMPILER_ENGINE=scala for other targets" >&2
+            exit 2
+            ;;
+    esac
 
     if [ ! -x "$CPP17_COMPILER_BIN" ]; then
         echo "build-formats: C++17 compiler missing at $CPP17_COMPILER_BIN; run cmake -S compiler-cpp -B compiler-cpp/build && cmake --build compiler-cpp/build" >&2
@@ -74,7 +78,7 @@ elif [ "$KAITAI_COMPILER_ENGINE" = "cpp17" ]; then
     fi
 
     for ksy in "$FORMATS_KSY_DIR"/*.ksy; do
-        "$CPP17_COMPILER_BIN" --verbose file -t cpp_stl --cpp-standard 17 \
+        "$CPP17_COMPILER_BIN" --verbose file -t "$TARGET" --cpp-standard 17 \
             -d "$OUTPUT_DIR" \
             --import-path "$FORMATS_REPO_DIR" \
             --import-path "$FORMATS_KSY_DIR/ks_path" \
