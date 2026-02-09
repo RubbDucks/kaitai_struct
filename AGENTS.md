@@ -205,6 +205,7 @@ When editing `.ksy` specs or generator logic, keep these core concepts in mind:
 - Lua test dependencies used by `tests/run-lua`: `luaunit`, `luafilesystem`; for broad encoding coverage install `lua-iconv` too.
 - If package installation suddenly fails with 404 from Ubuntu mirrors, run `apt-get update` and retry.
 - On fresh Ubuntu images used here, `sbt` is often missing even when Java is present; install sbt repo keys/lists first, then `apt-get install sbt` before running `tests/build-compiler`.
+- `tests/build-compiler` can still exit 0 in `cpp17` mode when `sbt` is missing, but that does not create `compiler/jvm/target/universal/stage/bin/kaitai-struct-compiler`; Scala-based format generation (`KAITAI_COMPILER_ENGINE=scala`) will fail until sbt is installed and the stage compiler is built.
 - When debugging Python test regressions, remember the known pitfalls:
   - missing `PY2` compatibility export in `runtime/python/kaitaistruct.py`
   - failed short reads on seekable streams must rewind before raising EOF
