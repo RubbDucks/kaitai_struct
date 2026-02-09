@@ -68,30 +68,17 @@ elif [ "$KAITAI_COMPILER_ENGINE" = "cpp17" ]; then
         exit 2
     fi
 
-    if [ ! -x "$SCALA_COMPILER_BIN" ]; then
-        echo "build-formats: Scala stage compiler missing at $SCALA_COMPILER_BIN; run tests/build-compiler first" >&2
-        exit 2
-    fi
-
     if [ ! -x "$CPP17_COMPILER_BIN" ]; then
         echo "build-formats: C++17 compiler missing at $CPP17_COMPILER_BIN; run cmake -S compiler-cpp -B compiler-cpp/build && cmake --build compiler-cpp/build" >&2
         exit 2
     fi
 
-    TMP_IR_DIR="$(mktemp -d)"
-    trap 'rm -rf "$TMP_IR_DIR"' EXIT INT TERM
-
     for ksy in "$FORMATS_KSY_DIR"/*.ksy; do
-        stem="$(basename "$ksy" .ksy)"
-        ir_path="$TMP_IR_DIR/$stem.ksir"
-
-        "$SCALA_COMPILER_BIN" -t cpp_stl --cpp-standard 17 \
-            --emit-ir "$ir_path" \
+        "$CPP17_COMPILER_BIN" --verbose file -t cpp_stl --cpp-standard 17 \
+            -d "$OUTPUT_DIR" \
             --import-path "$FORMATS_REPO_DIR" \
             --import-path "$FORMATS_KSY_DIR/ks_path" \
-            -- -d "$TMP_IR_DIR/scala_unused" "$ksy" || continue
-
-        "$CPP17_COMPILER_BIN" --from-ir "$ir_path" -t cpp_stl --cpp-standard 17 -d "$OUTPUT_DIR" || :
+            "$ksy" || :
     done
 else
     echo "Unknown KAITAI_COMPILER_ENGINE='$KAITAI_COMPILER_ENGINE' (supported: scala, cpp17)" >&2

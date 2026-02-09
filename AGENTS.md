@@ -238,3 +238,4 @@ When editing `.ksy` specs or generator logic, keep these core concepts in mind:
 - `tests/migration_golden/run_cpp17_benchmarks.py` depends on GNU `time` at `/usr/bin/time`; install package `time` if memory metrics preflight fails.
 
 - `tests/run-cpp_stl_17` may spend a long time in the initial CMake build phase (compiling hundreds of generated specs); expect progress percentages to advance slowly and monitor `tests/test_out/cpp_stl_17/build-*.log` rather than assuming a hang.
+- In `KAITAI_COMPILER_ENGINE=cpp17` mode, `tests/build-formats cpp_stl` currently tolerates per-spec compiler failures (`|| :`), so it may exit 0 with missing generated headers; always scan stderr for repeated `IR lowering failed`/`source file` errors before trusting the output tree.

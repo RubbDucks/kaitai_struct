@@ -10,11 +10,6 @@ if [ "$KAITAI_COMPILER_ENGINE" = "scala" ]; then
 elif [ "$KAITAI_COMPILER_ENGINE" = "cpp17" ]; then
   echo "[compiler-engine] selected=cpp17 script=build-compiler" >&2
 
-  cd "$COMPILER_DIR"
-  # Scala stage build remains required to export IR consumed by the C++17 engine.
-  sbt compilerJVM/stage
-  sbt compile fastOptJS
-
   cd "$COMPILER_CPP_DIR"
   cmake -S . -B build
   cmake --build build
