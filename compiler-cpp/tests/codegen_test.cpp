@@ -226,7 +226,7 @@ int main() {
     ok &= Check(c.find("do {") != std::string::npos && c.find("repeat_item == 255") != std::string::npos,
                 "repeat-until emitted");
     ok &= Check(c.find("if (opcode() == 1)") != std::string::npos, "if-conditional field emitted");
-    ok &= Check(c.find("opcode() == 1 ?") != std::string::npos && c.find("opcode() == 2 ?") != std::string::npos,
+    ok &= Check(c.find("if (opcode() == 1)") != std::string::npos && c.find("if (opcode() == 2)") != std::string::npos,
                 "switch-on cases emitted");
   }
 
@@ -237,18 +237,28 @@ int main() {
   }
 
   {
-    kscpp::ir::Spec bad;
-    auto parsed = kscpp::ir::LoadFromFile("../tests/data/unsupported_dynamic_switch.ksir", &bad);
+    kscpp::ir::Spec spec;
+    auto parsed = kscpp::ir::LoadFromFile("../tests/data/unsupported_dynamic_switch.ksir", &spec);
     ok &= Check(parsed.ok, "dynamic switch fixture parses");
 
     kscpp::CliOptions options;
-    options.out_dir = (std::filesystem::temp_directory_path() / "kscpp_codegen_bad_switch").string();
+    const std::filesystem::path out = std::filesystem::temp_directory_path() / "kscpp_codegen_dynamic_switch";
+    std::filesystem::remove_all(out);
+    options.out_dir = out.string();
     options.targets = {"cpp_stl"};
     options.runtime.cpp_standard = "17";
-    auto r = kscpp::codegen::EmitCppStl17FromIr(bad, options);
-    ok &= Check(!r.ok, "dynamic switch behavior currently rejected");
-    ok &= Check(r.error.find("switch-on dynamic expressions") != std::string::npos,
-                "dynamic switch rejection is diagnosable");
+
+    auto r = kscpp::codegen::EmitCppStl17FromIr(spec, options);
+    ok &= Check(r.ok, "dynamic switch and user type fixture codegen succeeds");
+
+    const std::string h = ReadAll(out / "unsupported_dynamic_switch.h");
+    const std::string c = ReadAll(out / "unsupported_dynamic_switch.cpp");
+    ok &= Check(h.find("uint16_t tagged() const") != std::string::npos,
+                "user-defined attr types resolve to primitive storage");
+    ok &= Check(c.find("if (tag() + 1 == tag() - 1)") != std::string::npos,
+                "dynamic switch-on expression emitted");
+    ok &= Check(c.find("if (tag() + 1 == tag() + 1)") != std::string::npos,
+                "switch case expression supports richer expressions");
   }
   {
     kscpp::ir::Spec spec;
