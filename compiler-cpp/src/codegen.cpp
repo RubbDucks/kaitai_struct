@@ -637,22 +637,302 @@ bool WriteFile(const std::filesystem::path& path, const std::string& content, st
   return true;
 }
 
-std::string RenderScriptingModule(const ir::Spec& spec, const std::string& target) {
+
+std::string RenderPythonModule(const ir::Spec& spec) {
+  std::set<std::string> attrs;
+  for (const auto& a : spec.attrs) attrs.insert(a.id);
+  std::set<std::string> known_instances;
+  const auto user_types = BuildUserTypeMap(spec);
+
+  std::function<std::string(const ir::Expr&, int)> expr;
+  expr = [&](const ir::Expr& e, int parent_prec) {
+    switch (e.kind) {
+    case ir::Expr::Kind::kInt: return std::to_string(e.int_value);
+    case ir::Expr::Kind::kBool: return e.bool_value ? std::string("True") : std::string("False");
+    case ir::Expr::Kind::kName:
+      if (attrs.find(e.text) != attrs.end() || known_instances.find(e.text) != known_instances.end()) return "self." + e.text;
+      return e.text;
+    case ir::Expr::Kind::kUnary: return "(" + NormalizeOp(e.text) + expr(*e.lhs, 90) + ")";
+    case ir::Expr::Kind::kBinary: {
+      std::string op = NormalizeOp(e.text);
+      const int prec = ExprPrecedence(e);
+      std::string rendered = expr(*e.lhs, prec) + " " + op + " " + expr(*e.rhs, prec + 1);
+      if (prec <= parent_prec) rendered = "(" + rendered + ")";
+      return rendered;
+    }
+    }
+    return std::string("0");
+  };
+
+  auto read_primitive = [&](ir::PrimitiveType primitive, std::optional<ir::Endian> override_endian) {
+    if (primitive == ir::PrimitiveType::kBytes) return std::string("self._io.read_bytes_full()");
+    if (primitive == ir::PrimitiveType::kStr) return std::string("''");
+    return std::string("self._io.") + ReadMethod(primitive, override_endian.value_or(spec.default_endian)) + "()";
+  };
+
+  auto read_attr = [&](const ir::Attr& attr) {
+    const auto primitive = ResolvePrimitiveType(attr.type, user_types).value_or(ir::PrimitiveType::kU1);
+    if (attr.switch_on.has_value()) {
+      std::ostringstream sw;
+      sw << "_on = " << expr(*attr.switch_on, -1) << "\n";
+      bool wrote_else = false;
+      for (size_t i = 0; i < attr.switch_cases.size(); i++) {
+        const auto& c = attr.switch_cases[i];
+        if (!c.match_expr.has_value()) {
+          sw << "else:\n";
+          wrote_else = true;
+        } else {
+          sw << (i == 0 ? "if" : "elif") << " _on == " << expr(*c.match_expr, -1) << ":\n";
+        }
+        const auto c_prim = ResolvePrimitiveType(c.type, user_types).value_or(primitive);
+        sw << "    self." << attr.id << " = " << read_primitive(c_prim, attr.endian_override) << "\n";
+      }
+      if (!wrote_else) sw << "else:\n    self." << attr.id << " = " << read_primitive(primitive, attr.endian_override) << "\n";
+      return sw.str();
+    }
+    std::string read;
+    if (primitive == ir::PrimitiveType::kBytes) {
+      read = attr.size_expr.has_value() ? ("self._io.read_bytes(" + expr(*attr.size_expr, -1) + ")") : "self._io.read_bytes_full()";
+      if (attr.process.has_value() && attr.process->kind == ir::Attr::Process::Kind::kXorConst) {
+        read = "KaitaiStream.process_xor_one(" + read + ", " + std::to_string(attr.process->xor_const) + ")";
+      }
+    } else if (primitive == ir::PrimitiveType::kStr) {
+      read = attr.size_expr.has_value() ? ("KaitaiStream.bytes_to_str(self._io.read_bytes(" + expr(*attr.size_expr, -1) + "), '" + attr.encoding.value_or("UTF-8") + "')") : "''";
+    } else {
+      read = read_primitive(primitive, attr.endian_override);
+    }
+    return std::string("self.") + attr.id + " = " + read + "\n";
+  };
+
   std::ostringstream out;
   out << "# This is a generated file! Please edit source .ksy file and use kaitai-struct-compiler to rebuild\n";
-  out << "# target: " << target << "\n";
-  out << "# id: " << spec.name << "\n";
-  if (target == "python") {
-    out << "class " << spec.name << ":\n";
-    out << "    pass\n";
-  } else if (target == "ruby") {
-    out << "class " << spec.name << "\n";
-    out << "end\n";
-  } else {
-    out << "local " << spec.name << " = {}\n";
-    out << "return " << spec.name << "\n";
+  out << "from kaitaistruct import KaitaiStruct, KaitaiStream, ValidationExprError\n\n";
+  out << "class " << spec.name << "(KaitaiStruct):\n";
+  out << "    def __init__(self, _io, _parent=None, _root=None):\n";
+  out << "        self._io = _io\n";
+  out << "        self._parent = _parent\n";
+  out << "        self._root = _root if _root else self\n";
+  out << "        self._read()\n\n";
+  out << "    def _read(self):\n";
+  if (spec.attrs.empty() && spec.validations.empty()) out << "        pass\n";
+  for (const auto& attr : spec.attrs) {
+    if (attr.repeat == ir::Attr::RepeatKind::kNone) {
+      std::string read = read_attr(attr);
+      std::istringstream in(read);
+      std::string line;
+      while (std::getline(in, line)) if (!line.empty()) out << "        " << line << "\n";
+    } else if (attr.repeat == ir::Attr::RepeatKind::kEos) {
+      out << "        self." << attr.id << " = []\n";
+      out << "        while not self._io.is_eof():\n";
+      out << "            _ = " << read_primitive(ResolvePrimitiveType(attr.type, user_types).value_or(ir::PrimitiveType::kU1), attr.endian_override) << "\n";
+      out << "            self." << attr.id << ".append(_)\n";
+    } else if (attr.repeat == ir::Attr::RepeatKind::kExpr) {
+      out << "        self." << attr.id << " = []\n";
+      out << "        for _i in range(" << expr(*attr.repeat_expr, -1) << "):\n";
+      out << "            _ = " << read_primitive(ResolvePrimitiveType(attr.type, user_types).value_or(ir::PrimitiveType::kU1), attr.endian_override) << "\n";
+      out << "            self." << attr.id << ".append(_)\n";
+    } else {
+      out << "        self." << attr.id << " = []\n";
+      out << "        while True:\n";
+      out << "            _ = " << read_primitive(ResolvePrimitiveType(attr.type, user_types).value_or(ir::PrimitiveType::kU1), attr.endian_override) << "\n";
+      out << "            self." << attr.id << ".append(_)\n";
+      out << "            if " << expr(*attr.repeat_expr, -1) << ":\n";
+      out << "                break\n";
+    }
+  }
+  for (const auto& v : spec.validations) {
+    out << "        if not (" << expr(v.condition_expr, -1) << "):\n";
+    out << "            raise ValidationExprError(self." << v.target << ", self._io, '/valid/" << v.target << "')\n";
+  }
+
+  for (const auto& inst : spec.instances) {
+    out << "\n    @property\n";
+    out << "    def " << inst.id << "(self):\n";
+    out << "        if hasattr(self, '_m_" << inst.id << "'):\n";
+    out << "            return self._m_" << inst.id << "\n";
+    out << "        self._m_" << inst.id << " = " << expr(inst.value_expr, -1) << "\n";
+    out << "        return self._m_" << inst.id << "\n";
+    known_instances.insert(inst.id);
   }
   return out.str();
+}
+
+std::string RenderRubyModule(const ir::Spec& spec) {
+  std::set<std::string> attrs;
+  for (const auto& a : spec.attrs) attrs.insert(a.id);
+  std::set<std::string> known_instances;
+  const auto user_types = BuildUserTypeMap(spec);
+  std::function<std::string(const ir::Expr&, int)> expr;
+  expr = [&](const ir::Expr& e, int parent_prec) {
+    switch (e.kind) {
+    case ir::Expr::Kind::kInt: return std::to_string(e.int_value);
+    case ir::Expr::Kind::kBool: return e.bool_value ? std::string("true") : std::string("false");
+    case ir::Expr::Kind::kName: return (attrs.find(e.text) != attrs.end() || known_instances.find(e.text) != known_instances.end()) ? ("@" + e.text) : e.text;
+    case ir::Expr::Kind::kUnary: return "(" + NormalizeOp(e.text) + expr(*e.lhs, 90) + ")";
+    case ir::Expr::Kind::kBinary: {
+      const int prec = ExprPrecedence(e);
+      std::string rendered = expr(*e.lhs, prec) + " " + NormalizeOp(e.text) + " " + expr(*e.rhs, prec + 1);
+      if (prec <= parent_prec) rendered = "(" + rendered + ")";
+      return rendered;
+    }
+    }
+    return std::string("0");
+  };
+
+  auto read_primitive = [&](ir::PrimitiveType primitive, std::optional<ir::Endian> override_endian) {
+    if (primitive == ir::PrimitiveType::kBytes) return std::string("@_io.read_bytes_full");
+    if (primitive == ir::PrimitiveType::kStr) return std::string("''");
+    return std::string("@_io.") + ReadMethod(primitive, override_endian.value_or(spec.default_endian));
+  };
+
+  std::ostringstream out;
+  out << "# This is a generated file! Please edit source .ksy file and use kaitai-struct-compiler to rebuild\n";
+  out << "require 'kaitai/struct/struct'\n\n";
+  out << "class " << spec.name << " < Kaitai::Struct::Struct\n";
+  out << "  def initialize(_io, _parent = nil, _root = nil)\n";
+  out << "    super(_io)\n    @_parent = _parent\n    @_root = _root || self\n    _read\n  end\n\n";
+  out << "  def _read\n";
+  for (const auto& attr : spec.attrs) {
+    const auto primitive = ResolvePrimitiveType(attr.type, user_types).value_or(ir::PrimitiveType::kU1);
+    std::string read = read_primitive(primitive, attr.endian_override);
+    if (primitive == ir::PrimitiveType::kBytes) {
+      read = attr.size_expr.has_value() ? ("@_io.read_bytes(" + expr(*attr.size_expr, -1) + ")") : "@_io.read_bytes_full";
+      if (attr.process.has_value() && attr.process->kind == ir::Attr::Process::Kind::kXorConst) {
+        read = "Kaitai::Struct::Stream.process_xor_one(" + read + ", " + std::to_string(attr.process->xor_const) + ")";
+      }
+    }
+    if (attr.repeat == ir::Attr::RepeatKind::kExpr) {
+      out << "    @" << attr.id << " = Array.new(" << expr(*attr.repeat_expr, -1) << ")\n";
+      out << "    (" << expr(*attr.repeat_expr, -1) << ").times { |i| @" << attr.id << "[i] = " << read << " }\n";
+    } else {
+      out << "    @" << attr.id << " = " << read << "\n";
+    }
+  }
+  for (const auto& v : spec.validations) {
+    out << "    raise Kaitai::Struct::ValidationExprError.new(@" << v.target << ", @_io, '/valid/" << v.target << "') if !(" << expr(v.condition_expr, -1) << ")\n";
+  }
+  out << "  end\n\n";
+  for (const auto& attr : spec.attrs) out << "  attr_reader :" << attr.id << "\n";
+  for (const auto& inst : spec.instances) {
+    out << "\n  def " << inst.id << "\n";
+    out << "    return @" << inst.id << " unless @" << inst.id << ".nil?\n";
+    out << "    @" << inst.id << " = " << expr(inst.value_expr, -1) << "\n";
+    out << "    @" << inst.id << "\n  end\n";
+    known_instances.insert(inst.id);
+  }
+  out << "end\n";
+  return out.str();
+}
+
+std::string RenderLuaModule(const ir::Spec& spec) {
+  const auto user_types = BuildUserTypeMap(spec);
+  std::set<std::string> attrs;
+  for (const auto& a : spec.attrs) attrs.insert(a.id);
+  std::set<std::string> known_instances;
+
+  std::function<std::string(const ir::Expr&, int, const std::string&)> expr;
+  expr = [&](const ir::Expr& e, int parent_prec, const std::string& repeat_item) {
+    switch (e.kind) {
+    case ir::Expr::Kind::kInt: return std::to_string(e.int_value);
+    case ir::Expr::Kind::kBool: return e.bool_value ? std::string("true") : std::string("false");
+    case ir::Expr::Kind::kName:
+      if (!repeat_item.empty() && e.text == "_") return repeat_item;
+      if (attrs.find(e.text) != attrs.end()) return "self." + e.text;
+      if (known_instances.find(e.text) != known_instances.end()) return "self:" + e.text + "()";
+      return e.text;
+    case ir::Expr::Kind::kUnary: {
+      std::string op = NormalizeOp(e.text);
+      if (op == "!") return "(not " + expr(*e.lhs, 90, repeat_item) + ")";
+      return "(" + op + expr(*e.lhs, 90, repeat_item) + ")";
+    }
+    case ir::Expr::Kind::kBinary: {
+      std::string op = NormalizeOp(e.text);
+      if (op == "&&") op = "and";
+      if (op == "||") op = "or";
+      const int prec = ExprPrecedence(e);
+      std::string rendered = expr(*e.lhs, prec, repeat_item) + " " + op + " " + expr(*e.rhs, prec + 1, repeat_item);
+      if (prec <= parent_prec) rendered = "(" + rendered + ")";
+      return rendered;
+    }
+    }
+    return std::string("0");
+  };
+
+  auto read_primitive = [&](ir::PrimitiveType primitive, std::optional<ir::Endian> override_endian) {
+    if (primitive == ir::PrimitiveType::kBytes) return std::string("self._io:read_bytes_full()");
+    if (primitive == ir::PrimitiveType::kStr) return std::string("''");
+    return std::string("self._io:") + ReadMethod(primitive, override_endian.value_or(spec.default_endian)) + "()";
+  };
+
+  std::ostringstream out;
+  out << "-- This is a generated file! Please edit source .ksy file and use kaitai-struct-compiler to rebuild\n";
+  out << "local class = require('class')\n";
+  out << "require('kaitaistruct')\n";
+  out << "local KaitaiStream = require('kaitaistruct').KaitaiStream\n\n";
+  out << spec.name << " = class.class(KaitaiStruct)\n\n";
+  out << "function " << spec.name << ":_init(io, parent, root)\n";
+  out << "  self._io = io\n  self._parent = parent\n  self._root = root or self\n  self:_read()\nend\n\n";
+  out << "function " << spec.name << ":_read()\n";
+
+  for (const auto& attr : spec.attrs) {
+    const auto primitive = ResolvePrimitiveType(attr.type, user_types).value_or(ir::PrimitiveType::kU1);
+    auto render_read = [&]() {
+      std::string read;
+      if (primitive == ir::PrimitiveType::kBytes) {
+        read = attr.size_expr.has_value() ? ("self._io:read_bytes(" + expr(*attr.size_expr, -1, "") + ")") : "self._io:read_bytes_full()";
+        if (attr.process.has_value() && attr.process->kind == ir::Attr::Process::Kind::kXorConst) {
+          read = "KaitaiStream.process_xor_one(" + read + ", " + std::to_string(attr.process->xor_const) + ")";
+        }
+      } else {
+        read = read_primitive(primitive, attr.endian_override);
+      }
+      return read;
+    };
+
+    if (attr.repeat == ir::Attr::RepeatKind::kExpr) {
+      out << "  self." << attr.id << " = {}\n";
+      out << "  for i = 1, " << expr(*attr.repeat_expr, -1, "") << " do\n";
+      out << "    self." << attr.id << "[i] = " << render_read() << "\n";
+      out << "  end\n";
+    } else if (attr.repeat == ir::Attr::RepeatKind::kEos) {
+      out << "  self." << attr.id << " = {}\n";
+      out << "  while not self._io:is_eof() do\n";
+      out << "    self." << attr.id << "[#self." << attr.id << " + 1] = " << render_read() << "\n";
+      out << "  end\n";
+    } else if (attr.repeat == ir::Attr::RepeatKind::kUntil) {
+      out << "  self." << attr.id << " = {}\n";
+      out << "  while true do\n";
+      out << "    local repeat_item = " << render_read() << "\n";
+      out << "    self." << attr.id << "[#self." << attr.id << " + 1] = repeat_item\n";
+      out << "    if " << expr(*attr.repeat_expr, -1, "repeat_item") << " then break end\n";
+      out << "  end\n";
+    } else {
+      out << "  self." << attr.id << " = " << render_read() << "\n";
+    }
+  }
+
+  for (const auto& v : spec.validations) {
+    out << "  if not (" << expr(v.condition_expr, -1, "") << ") then error('validation failed: /valid/" << v.target << "') end\n";
+  }
+  out << "end\n";
+
+  for (const auto& inst : spec.instances) {
+    out << "\nfunction " << spec.name << ":" << inst.id << "()\n";
+    out << "  if self._m_" << inst.id << " ~= nil then return self._m_" << inst.id << " end\n";
+    out << "  self._m_" << inst.id << " = " << expr(inst.value_expr, -1, "") << "\n";
+    out << "  return self._m_" << inst.id << "\n";
+    out << "end\n";
+    known_instances.insert(inst.id);
+  }
+
+  out << "\nreturn " << spec.name << "\n";
+  return out.str();
+}
+
+std::string RenderScriptingModule(const ir::Spec& spec, const std::string& target) {
+  if (target == "python") return RenderPythonModule(spec);
+  if (target == "ruby") return RenderRubyModule(spec);
+  return RenderLuaModule(spec);
 }
 
 std::filesystem::path PythonOutputPath(const ir::Spec& spec, const CliOptions& options) {

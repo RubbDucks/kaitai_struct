@@ -225,6 +225,7 @@ When editing `.ksy` specs or generator logic, keep these core concepts in mind:
 - `tests/run-lua` requires generated modules under `tests/compiled/lua`; run `tests/build-formats lua` first if modules are missing.
 - On Ubuntu, `lua-iconv` apt package may only satisfy Lua 5.1; for Lua 5.4 tests you may need `liblua5.4-dev` + `luarocks --lua-version=5.4 install lua-iconv`.
 - On Ubuntu package names differ from module names: install `lua-unit` (not `luaunit`) and `lua-filesystem` before `tests/run-lua`.
+- Some base images may not have any `lua` interpreter on PATH at all; install `lua5.4` (or set alternatives) before running `tests/run-lua`.
 - `tests/run-cpp_stl_17` needs Boost unit test headers/libs (`libboost-test-dev`) in addition to CMake/compiler prerequisites.
 - If `tests/run-lua` can't find `luaunit` in `/usr/local/share/lua/5.4`, your `lua` alternative may still point to 5.1; set both alternatives to 5.4:
   - `update-alternatives --set lua-interpreter /usr/bin/lua5.4`
