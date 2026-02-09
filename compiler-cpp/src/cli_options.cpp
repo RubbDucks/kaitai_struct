@@ -398,8 +398,6 @@ std::string ValidateBackendCompatibility(const CliOptions& options) {
            Join(SupportedTargets(), ", ");
   }
 
-  const bool delegated =
-      target == "lua" || target == "wireshark_lua" || target == "python" || target == "ruby";
   const bool is_cpp_stl = target == "cpp_stl";
 
   if (options.runtime.read_write && !SupportsReadWriteTarget(target)) {
@@ -422,50 +420,41 @@ std::string ValidateBackendCompatibility(const CliOptions& options) {
     return "";
   }
 
-  if (delegated) {
-    if (options.runtime.cpp_standard != "98") {
-      return "--cpp-standard is only supported with target 'cpp_stl'";
-    }
-    if (!options.runtime.cpp_namespace.empty()) {
-      return "--cpp-namespace is only supported with target 'cpp_stl'";
-    }
-    if (!options.runtime.java_package.empty()) {
-      return "--java-package is not supported for delegated targets";
-    }
-    if (!options.runtime.java_from_file_class.empty()) {
-      return "--java-from-file-class is not supported for delegated targets";
-    }
-    if (!options.runtime.dotnet_namespace.empty()) {
-      return "--dotnet-namespace is not supported for delegated targets";
-    }
-    if (!options.runtime.php_namespace.empty()) {
-      return "--php-namespace is not supported for delegated targets";
-    }
-    if (!options.runtime.go_package.empty()) {
-      return "--go-package is not supported for delegated targets";
-    }
-    if (!options.runtime.nim_module.empty()) {
-      return "--nim-module is not supported for delegated targets";
-    }
-    if (!options.runtime.nim_opaque.empty()) {
-      return "--nim-opaque is not supported for delegated targets";
-    }
-    if (options.runtime.opaque_types) {
-      return "--opaque-types is not supported for delegated targets";
-    }
-    if (!options.runtime.zero_copy_substream && !options.runtime.read_write) {
-      return "--zero-copy-substream=false is not supported for delegated targets";
-    }
-
-    if (!options.runtime.python_package.empty() && target != "python") {
-      return "--python-package is only supported with target 'python'";
-    }
-    return "";
+  if (!options.runtime.cpp_namespace.empty()) {
+    return "--cpp-namespace is only supported with target 'cpp_stl'";
+  }
+  if (!options.runtime.java_package.empty()) {
+    return "--java-package is not supported for native compiler-cpp targets";
+  }
+  if (!options.runtime.java_from_file_class.empty()) {
+    return "--java-from-file-class is not supported for native compiler-cpp targets";
+  }
+  if (!options.runtime.dotnet_namespace.empty()) {
+    return "--dotnet-namespace is not supported for native compiler-cpp targets";
+  }
+  if (!options.runtime.php_namespace.empty()) {
+    return "--php-namespace is not supported for native compiler-cpp targets";
+  }
+  if (!options.runtime.go_package.empty()) {
+    return "--go-package is not supported for native compiler-cpp targets";
+  }
+  if (!options.runtime.nim_module.empty()) {
+    return "--nim-module is not supported for native compiler-cpp targets";
+  }
+  if (!options.runtime.nim_opaque.empty()) {
+    return "--nim-opaque is not supported for native compiler-cpp targets";
+  }
+  if (options.runtime.opaque_types) {
+    return "--opaque-types is not supported for native compiler-cpp targets";
+  }
+  if (!options.runtime.zero_copy_substream && !options.runtime.read_write) {
+    return "--zero-copy-substream=false is not supported for native compiler-cpp targets";
   }
 
-  return "target '" + target +
-         "' is accepted by CLI but not implemented in compiler-cpp backend; supported targets are: " +
-         Join(SupportedTargets(), ", ");
+  if (!options.runtime.python_package.empty() && target != "python") {
+    return "--python-package is only supported with target 'python'";
+  }
+  return "";
 }
 
 } // namespace kscpp

@@ -289,6 +289,63 @@ int main() {
                 "validation source paths are emitted");
   }
 
+
+  {
+    kscpp::ir::Spec spec;
+    spec.name = "script_target_smoke";
+    spec.default_endian = kscpp::ir::Endian::kLe;
+
+    kscpp::ir::Attr attr;
+    attr.id = "one";
+    attr.type.kind = kscpp::ir::TypeRef::Kind::kPrimitive;
+    attr.type.primitive = kscpp::ir::PrimitiveType::kU1;
+    spec.attrs.push_back(attr);
+
+    const std::filesystem::path out = std::filesystem::temp_directory_path() / "kscpp_codegen_script_target_test";
+    std::filesystem::remove_all(out);
+
+    {
+      kscpp::CliOptions options;
+      options.out_dir = out.string();
+      auto r = kscpp::codegen::EmitLuaFromIr(spec, options);
+      ok &= Check(r.ok, "lua codegen succeeds");
+      ok &= Check(std::filesystem::exists(out / "script_target_smoke.lua"), "lua module emitted");
+      ok &= Check(ReadAll(out / "script_target_smoke.lua").find("target: lua") != std::string::npos,
+                  "lua output identifies target");
+    }
+
+    {
+      kscpp::CliOptions options;
+      options.out_dir = out.string();
+      auto r = kscpp::codegen::EmitWiresharkLuaFromIr(spec, options);
+      ok &= Check(r.ok, "wireshark_lua codegen succeeds");
+      ok &= Check(ReadAll(out / "script_target_smoke.lua").find("target: wireshark_lua") != std::string::npos,
+                  "wireshark lua output identifies target");
+    }
+
+    {
+      kscpp::CliOptions options;
+      options.out_dir = out.string();
+      options.runtime.python_package = "pkg.subpkg";
+      auto r = kscpp::codegen::EmitPythonFromIr(spec, options);
+      ok &= Check(r.ok, "python codegen succeeds");
+      const auto py_path = out / "pkg" / "subpkg" / "script_target_smoke.py";
+      ok &= Check(std::filesystem::exists(py_path), "python module emitted under package path");
+      ok &= Check(ReadAll(py_path).find("target: python") != std::string::npos,
+                  "python output identifies target");
+    }
+
+    {
+      kscpp::CliOptions options;
+      options.out_dir = out.string();
+      auto r = kscpp::codegen::EmitRubyFromIr(spec, options);
+      ok &= Check(r.ok, "ruby codegen succeeds");
+      ok &= Check(std::filesystem::exists(out / "script_target_smoke.rb"), "ruby module emitted");
+      ok &= Check(ReadAll(out / "script_target_smoke.rb").find("target: ruby") != std::string::npos,
+                  "ruby output identifies target");
+    }
+  }
+
   {
     kscpp::ir::Spec unsupported;
     unsupported.name = "unsupported";

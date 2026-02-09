@@ -15,3 +15,7 @@ wireshark_lua_default_endian	primitives	success	tests/formats/default_big_endian
 python_instance_std	instances	success	tests/formats/instance_std.ksy	python	match_scala_vs_cpp17_ir		required
 ruby_repeat_n_bytes	repeats	success	tests/formats/repeat_n_bytes.ksy	ruby	match_scala_vs_cpp17_ir		required
 cpp17_dynamic_switch_expr	switch-on	success	tests/migration_golden/fixtures/cpp17_dynamic_switch_expr.ksy	cpp_stl	match_scala_vs_cpp17_ir		required
+lua_hello_world	primitives	success	tests/formats/hello_world.ksy	lua	match_scala_vs_cpp17_ir		required
+wireshark_lua_hello_world	primitives	success	tests/formats/hello_world.ksy	wireshark_lua	match_scala_vs_cpp17_ir		required
+python_hello_world	primitives	success	tests/formats/hello_world.ksy	python	match_scala_vs_cpp17_ir		required
+ruby_hello_world	primitives	success	tests/formats/hello_world.ksy	ruby	match_scala_vs_cpp17_ir		required
