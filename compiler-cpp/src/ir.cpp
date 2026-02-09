@@ -769,9 +769,19 @@ ValidationResult Deserialize(const std::string& encoded, Spec* out, bool validat
     bool has_process_column = false;
     if (suffix_new >> std::quoted(process_text) >> std::quoted(if_expr_text) >> repeat_kind_text >>
             std::quoted(repeat_expr_text) >> std::quoted(switch_on_text) >> switch_case_count) {
-      parsed_suffix = true;
-      has_process_column = true;
-    } else {
+      auto looks_like_expr = [](const std::string& text) {
+        return text == "none" || (!text.empty() && text.front() == '(');
+      };
+      const bool repeat_kind_valid =
+          repeat_kind_text == "none" || repeat_kind_text == "eos" || repeat_kind_text == "expr" ||
+          repeat_kind_text == "until";
+      if (repeat_kind_valid && looks_like_expr(if_expr_text) && looks_like_expr(repeat_expr_text) &&
+          looks_like_expr(switch_on_text)) {
+        parsed_suffix = true;
+        has_process_column = true;
+      }
+    }
+    if (!parsed_suffix) {
       process_text = "none";
       if_expr_text = "none";
       repeat_kind_text = "none";
