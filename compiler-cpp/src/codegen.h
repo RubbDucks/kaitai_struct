@@ -14,6 +14,10 @@ struct Result {
 };
 
 Result EmitCppStl17FromIr(const ir::Spec& spec, const CliOptions& options);
+Result EmitLuaFromIr(const ir::Spec& spec, const CliOptions& options);
+Result EmitWiresharkLuaFromIr(const ir::Spec& spec, const CliOptions& options);
+Result EmitPythonFromIr(const ir::Spec& spec, const CliOptions& options);
+Result EmitRubyFromIr(const ir::Spec& spec, const CliOptions& options);
 
 } // namespace kscpp::codegen
 

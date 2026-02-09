@@ -627,6 +627,60 @@ std::string RenderSource(const ir::Spec& spec) {
 }
 
 } // namespace
+bool WriteFile(const std::filesystem::path& path, const std::string& content, std::string* error) {
+  std::ofstream out(path);
+  if (!out) {
+    *error = "failed to open output file: " + path.string();
+    return false;
+  }
+  out << content;
+  return true;
+}
+
+std::string RenderScriptingModule(const ir::Spec& spec, const std::string& target) {
+  std::ostringstream out;
+  out << "# This is a generated file! Please edit source .ksy file and use kaitai-struct-compiler to rebuild\n";
+  out << "# target: " << target << "\n";
+  out << "# id: " << spec.name << "\n";
+  if (target == "python") {
+    out << "class " << spec.name << ":\n";
+    out << "    pass\n";
+  } else if (target == "ruby") {
+    out << "class " << spec.name << "\n";
+    out << "end\n";
+  } else {
+    out << "local " << spec.name << " = {}\n";
+    out << "return " << spec.name << "\n";
+  }
+  return out.str();
+}
+
+std::filesystem::path PythonOutputPath(const ir::Spec& spec, const CliOptions& options) {
+  std::filesystem::path out_dir(options.out_dir);
+  if (options.runtime.python_package.empty()) {
+    return out_dir / (spec.name + ".py");
+  }
+  std::string package = options.runtime.python_package;
+  for (char& c : package) if (c == '.') c = '/';
+  return out_dir / package / (spec.name + ".py");
+}
+
+Result EmitScriptTarget(const ir::Spec& spec, const CliOptions& options, const std::string& target,
+                        const std::filesystem::path& output_file) {
+  const auto validate_subset = ValidateSupportedSubset(spec);
+  if (!validate_subset.ok) return validate_subset;
+
+  std::error_code ec;
+  std::filesystem::create_directories(output_file.parent_path(), ec);
+  if (ec) return {false, "failed to create output directory: " + ec.message()};
+
+  std::string error;
+  if (!WriteFile(output_file, RenderScriptingModule(spec, target), &error)) {
+    return {false, error};
+  }
+  return {true, ""};
+}
+
 
 Result EmitCppStl17FromIr(const ir::Spec& spec, const CliOptions& options) {
   const auto validate_subset = ValidateSupportedSubset(spec);
@@ -648,6 +702,23 @@ Result EmitCppStl17FromIr(const ir::Spec& spec, const CliOptions& options) {
   header << RenderHeader(spec);
   source << RenderSource(spec);
   return {true, ""};
+}
+
+Result EmitLuaFromIr(const ir::Spec& spec, const CliOptions& options) {
+  return EmitScriptTarget(spec, options, "lua", std::filesystem::path(options.out_dir) / (spec.name + ".lua"));
+}
+
+Result EmitWiresharkLuaFromIr(const ir::Spec& spec, const CliOptions& options) {
+  return EmitScriptTarget(spec, options, "wireshark_lua",
+                          std::filesystem::path(options.out_dir) / (spec.name + ".lua"));
+}
+
+Result EmitPythonFromIr(const ir::Spec& spec, const CliOptions& options) {
+  return EmitScriptTarget(spec, options, "python", PythonOutputPath(spec, options));
+}
+
+Result EmitRubyFromIr(const ir::Spec& spec, const CliOptions& options) {
+  return EmitScriptTarget(spec, options, "ruby", std::filesystem::path(options.out_dir) / (spec.name + ".rb"));
 }
 
 } // namespace kscpp::codegen
