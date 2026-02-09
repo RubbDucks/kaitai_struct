@@ -1,124 +1,61 @@
-# Scala-to-C++17 Compiler Migration (Scaffolding)
+# C++17 Compiler Release-Readiness (Active Targets)
 
-## Purpose
+This directory now tracks **release-readiness and promotion gates**, not scaffolding.
+For this fork's active targets (`cpp_stl`, `lua`, `wireshark_lua`, `python`, `ruby`),
+`compiler-cpp/` must be behaviorally equivalent to the Scala compiler path for normal build/test workflows.
 
-This directory tracks the staged migration plan for introducing a C++17 implementation path in the Kaitai Struct compiler while keeping the current Scala implementation authoritative.
+## Normative behavior contract
 
-## Goals
+- Canonical CLI semantics: `compiler/jvm/src/main/scala/io/kaitai/struct/JavaMain.scala`.
+- C++17 path is considered parity-complete only when it matches Scala behavior for:
+  - CLI UX and argument validation
+  - diagnostics class/message expectations used by tests
+  - import resolution semantics (including cycles/collisions)
+  - full `.ksy` language + expression/type-checking semantics
+  - backend outputs/runtime contracts for active targets
+  - repository test harness integration
 
-- Define migration boundaries and decision records before production implementation changes.
-- Introduce a clear opt-in policy for the C++17 compiler path.
-- Preserve current user experience and CI behavior with Scala as the default and required compiler path.
-- Provide rollback mechanics for every migration phase.
+Detailed checklist and stop conditions are in `parity_checklist.md`.
 
-## Non-goals
+## Done gates (blocking)
 
-- No production compiler logic changes in this scaffolding commit.
-- No removal or deprecation of Scala compiler code.
-- No change to default compiler selection behavior.
-- No runtime library behavior changes.
+All gates below must be green simultaneously before promotion:
 
-## Architectural boundaries
+1. **Zero active build-format exclusions** for active targets in
+   `tests/migration_golden/build_formats_exclusions.tsv`.
+2. **Zero required differential mismatches** in
+   `tests/migration_golden/cpp17_differential_fixtures.tsv`.
+3. **Green runtime test runners using cpp17 outputs**:
+   - `tests/run-cpp_stl_17`
+   - `tests/run-lua`
+   - `tests/run-python`
+4. **CLI/diagnostics parity pass** vs Scala baseline on representative fixture matrix,
+   including JSON output mode (`--ksc-json-output`).
+5. **Default workflow engine flipped to cpp17** for repository build/test flows,
+   with Scala no longer required for normal active-target CI.
 
-### 1) Frontend and IR
+## Promotion criteria (rollback-free)
 
-- **Current authority:** Scala frontend/parser/type checker and Scala-owned IR semantics.
-- **Migration boundary:** C++17 path must consume a stable, explicitly defined IR contract.
-- **Constraint:** IR meaning remains source-of-truth compatible with Scala behavior unless explicitly versioned.
+Promotion is rollback-free only when:
 
-### 2) Backend emitters
+- Normal contributor commands (`tests/build-compiler`, `tests/build-formats`, language runners)
+  work end-to-end without Scala bootstrap requirements for active targets.
+- `--from-ir` is optional/internal and not required in standard compilation paths.
+- Differential and fixture coverage is broad enough to represent the full active feature surface,
+  not a smoke subset.
+- No "known mismatch allowed" policy remains for required fixtures.
 
-- **Current authority:** Existing Scala emitters remain production path.
-- **Migration boundary:** C++17 emitter path is introduced behind explicit opt-in only.
-- **Constraint:** Generated output parity is measured against Scala outputs for supported targets.
+## Current migration assets and their role
 
-### 3) Runtime assumptions
+- `parity_checklist.md`: contract + stop conditions.
+- `decision_log.md`: records decisions made while closing parity gaps.
+- `risk_register.md`: residual risks (must trend to zero for promotion).
+- `output_contract.md`: normalized output comparison rules.
+- `ir_spec.md`: IR invariants during transition.
+- `benchmark_trends.md`: stability/perf tracking while converging.
 
-- Runtime libraries (`runtime/*`) are unchanged by this scaffolding.
-- Any future C++17 compiler path must honor existing runtime contracts and test harness expectations.
-- Compatibility issues are tracked in `risk_register.md` before changing runtime assumptions.
+## Policy
 
-## Compatibility matrix
-
-| Area | Scala path | C++17 path |
-|---|---|---|
-| Status | **Authoritative, required, default** | Experimental, opt-in only |
-| CI gate | Blocking | Non-blocking until promotion criteria are met |
-| Feature parity source | Defines expected behavior | Must match Scala-defined behavior |
-| User-facing default | Enabled | Disabled unless explicitly requested |
-
-> **Explicit policy:** Scala remains the default and required compiler implementation throughout this migration until a later, explicit flip commit is approved.
-
-## Migration CI status
-
-![Migration differential (selective blocking)](https://github.com/kaitai-io/kaitai_struct/actions/workflows/main.yml/badge.svg)
-
-The `migration differential (selective blocking)` step runs `tests/ci-cpp17-differential` with `--enforce-gate required`.
-`tests/migration_golden/cpp17_differential_fixtures.tsv` is the canonical source of truth
-for fixture gate assignment (`required` vs `visibility`), and this inventory is now linted
-against documented gate examples in migration/readiness docs.
-
-| Signal | Gate type | CI behavior | Purpose |
-|---|---|---|---|
-| Required parity fixtures | `required` | **Blocking** (job fails on mismatch/error) | Enforce exact Scala-vs-C++17 normalized parity in the minimum guarded subset. |
-| Known migration gaps | `visibility` | Non-blocking | Keep unsupported targets/slices visible in reports while migration is incomplete. |
-
-Fixture gate assignment is declared in `tests/migration_golden/cpp17_differential_fixtures.tsv`.
-
-Build-format exclusions for intentional partial generation are declared in `tests/migration_golden/build_formats_exclusions.tsv` and must be kept in sync with this document and migration fixtures. Unexpected generation failures now fail `tests/build-formats` via summary gating.
-
-Current expected exclusions: see `tests/migration_golden/build_formats_exclusions.tsv` (currently 260 excluded specs per active cpp17 target during migration).
-
-
-## Target differential coverage (active fork targets)
-
-The migration differential fixture inventory (`tests/migration_golden/cpp17_differential_fixtures.tsv`) includes one representative fixture per active target in this fork, plus a minimum required parity subset:
-
-- `cpp_stl` required subset: `cpp17_empty_parity` (metadata-only fixture) enforces exact normalized parity and is CI-blocking.
-- `lua`, `wireshark_lua`, `python`, `ruby`: required fixtures are CI-blocking and keep cross-target parity expectations explicit.
-
-Documented gate examples (must match `cpp17_differential_fixtures.tsv`):
-
-<!-- gate-examples:start -->
-- required: `cpp17_empty_parity`, `cpp17_hello_world`, `python_hello_world`
-- visibility: _(none)_
-<!-- gate-examples:end -->
-
-This keeps Scala as the source of truth where C++17 coverage is intentionally incomplete, while still surfacing per-target pass/fail/gap counts in the differential report.
-
-## C++17 backend migration matrix (current experimental slice)
-
-| Feature area | Scala path | C++17 path (opt-in) |
-|---|---|---|
-| Integer attrs (`u1..u8`, `s1..s8`) | Implemented | Implemented |
-| Float attrs (`f4`, `f8`) | Implemented | Implemented |
-| Bytes attrs (`bytes`, `size`/EOS) | Implemented | Implemented (subset) |
-| String attrs (`str`, explicit `encoding`) | Implemented | Implemented (size + encoding subset) |
-| Enum emission / enum-typed integer attrs | Implemented | Implemented (subset fixtures) |
-| User types / `types` section | Implemented | Missing |
-| Validations | Implemented | Implemented (expression-style checks subset) |
-| Advanced control flow (`switch-on`, repeats, process, etc.) | Implemented | Partial (`repeat-*`, `if`, primitive `switch-on`, `process: xor(const)` subset) |
-
-## Phased rollout policy
-
-1. **Scaffolding (current):** documentation, risk tracking, ADRs, and opt-in policy definition.
-2. **Shadow mode:** C++17 path compiles in CI as informational checks only.
-3. **Targeted opt-in:** selected test subsets and contributors exercise C++17 path.
-4. **Parity gates:** C++17 path must satisfy documented parity/performance/reliability criteria.
-5. **Default flip (future explicit commit):** only after approval and stable rollback plan.
-
-## Rollback strategy
-
-- Keep Scala path intact and continuously healthy in CI at all phases.
-- Keep C++17 path isolated behind opt-in switches/flags until explicitly promoted.
-- If regressions occur, disable C++17 opt-in path in CI and release workflows without affecting Scala defaults.
-- Record rollback trigger criteria and incident notes in `decision_log.md` and `risk_register.md`.
-
-## References
-
-- `decision_log.md` for architecture decisions and reversibility notes.
-- `risk_register.md` for migration risk tracking and mitigations.
-- `output_contract.md` for language-agnostic normalized golden-output comparison rules and Scala baseline workflow.
-- `ir_spec.md` for the shared migration IR boundary and invariants used by Scala/C++ interop work.
-- `building_cpp.md` for configuring and validating the standalone experimental C++17 compiler skeleton.
-- `benchmark_trends.md` for fixed-corpus benchmark harness, metric schema, and baseline thresholds for Scala-vs-C++17 stability confidence.
+Until all done gates are met, cpp17 remains in migration/readiness mode.
+Once all gates are met and validated in CI, migration docs move to historical context and
+repo workflows/docs become cpp17-first.
