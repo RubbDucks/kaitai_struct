@@ -4,6 +4,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 "$ROOT_DIR/tests/migration_golden/validate_cpp17_readiness_checklist.py"
+"$ROOT_DIR/tests/migration_golden/validate_cpp17_gate_examples.py"
 "$ROOT_DIR/tests/ci-cpp17-differential"
 "$ROOT_DIR/tests/migration_golden/run_cpp17_benchmarks.py" \
   --fixtures "$ROOT_DIR/tests/migration_golden/benchmark_fixtures.tsv" \

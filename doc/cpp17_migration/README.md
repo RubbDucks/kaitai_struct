@@ -54,6 +54,9 @@ This directory tracks the staged migration plan for introducing a C++17 implemen
 ![Migration differential (selective blocking)](https://github.com/kaitai-io/kaitai_struct/actions/workflows/main.yml/badge.svg)
 
 The `migration differential (selective blocking)` step runs `tests/ci-cpp17-differential` with `--enforce-gate required`.
+`tests/migration_golden/cpp17_differential_fixtures.tsv` is the canonical source of truth
+for fixture gate assignment (`required` vs `visibility`), and this inventory is now linted
+against documented gate examples in migration/readiness docs.
 
 | Signal | Gate type | CI behavior | Purpose |
 |---|---|---|---|
@@ -72,8 +75,14 @@ Current expected exclusions: see `tests/migration_golden/build_formats_exclusion
 The migration differential fixture inventory (`tests/migration_golden/cpp17_differential_fixtures.tsv`) includes one representative fixture per active target in this fork, plus a minimum required parity subset:
 
 - `cpp_stl` required subset: `cpp17_empty_parity` (metadata-only fixture) enforces exact normalized parity and is CI-blocking.
-- `cpp_stl` visibility subset: `cpp17_hello_world` remains visible as a known non-blocking mismatch while text-level convergence is still in progress.
-- `lua`, `wireshark_lua`, `python`, `ruby`: Scala oracle checks with explicit gap/deviation annotations until equivalent C++17 emitters exist.
+- `lua`, `wireshark_lua`, `python`, `ruby`: required fixtures are CI-blocking and keep cross-target parity expectations explicit.
+
+Documented gate examples (must match `cpp17_differential_fixtures.tsv`):
+
+<!-- gate-examples:start -->
+- required: `cpp17_empty_parity`, `cpp17_hello_world`, `python_hello_world`
+- visibility: _(none)_
+<!-- gate-examples:end -->
 
 This keeps Scala as the source of truth where C++17 coverage is intentionally incomplete, while still surfacing per-target pass/fail/gap counts in the differential report.
 

@@ -216,6 +216,7 @@ When editing `.ksy` specs or generator logic, keep these core concepts in mind:
 
 - If you discover any environment quirk, test prerequisite, command nuance, or recurring failure mode while working here, **add a short note to this AGENTS.md immediately** so future runs are faster and less error-prone.
 
+- `tests/migration_golden/cpp17_differential_fixtures.tsv` uses a commented header (`# id`), so strict TSV parsers should strip the leading `#` before looking up column names.
 
 ## Minimum execution bar for change requests
 
