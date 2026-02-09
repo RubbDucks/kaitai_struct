@@ -11,10 +11,13 @@ This checklist is the release gate that was used to flip
 
 ## Signal catalog (automated)
 
+Canonical threshold set (release-grade and CI-enforced): latency ratio max **2.0**, memory ratio max **2.0**, stability CV max **0.20**.
+
+
 | Signal ID | Command | Pass criteria |
 | --- | --- | --- |
 | `SIG-PARITY-DIFF` | `tests/ci-cpp17-differential` | Exit code 0 with `--enforce-gate required`; all required fixtures report parity or approved known deviations. |
-| `SIG-PERF-BENCH` | `tests/migration_golden/run_cpp17_benchmarks.py --fixtures tests/migration_golden/benchmark_fixtures.tsv --output-dir tests/test_out/migration_benchmarks --stability-cv-max 1.0` | Exit code 0; latency, memory, and stability ratios satisfy configured thresholds in `report.json`. |
+| `SIG-PERF-BENCH` | `tests/migration_golden/run_cpp17_benchmarks.py --fixtures tests/migration_golden/benchmark_fixtures.tsv --output-dir tests/test_out/migration_benchmarks --latency-ratio-max 2.0 --memory-ratio-max 2.0 --stability-cv-max 0.20` | Exit code 0; latency, memory, and stability ratios satisfy the canonical release thresholds in `report.json` (latency ≤ 2.0, memory ≤ 2.0, stability CV ≤ 0.20). |
 | `SIG-PERF-SCHEMA` | `tests/migration_golden/run_cpp17_benchmarks.py --check-schema tests/test_out/migration_benchmarks/report.json` | Exit code 0; benchmark report schema validates. |
 | `SIG-CHECKLIST-LINT` | `tests/migration_golden/validate_cpp17_readiness_checklist.py` | Exit code 0; every checklist item maps to at least one automated signal ID. |
 

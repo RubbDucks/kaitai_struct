@@ -29,9 +29,9 @@ Cross-path ratios:
 - `latency_median_ratio_cpp_over_scala`
 - `max_rss_median_ratio_cpp_over_scala`
 
-## Baseline thresholds
+## Canonical release thresholds
 
-Thresholds are recorded in `report.json` and used to mark trend warnings:
+Release readiness uses one canonical threshold set recorded in `report.json`:
 
 - `latency_ratio_max = 2.0`
 - `memory_ratio_max = 2.0`
@@ -40,9 +40,10 @@ Thresholds are recorded in `report.json` and used to mark trend warnings:
 Interpretation:
 
 - **Pass**: No fixture breaches thresholds.
-- **Warn**: At least one fixture breaches thresholds.
+- **Warn/Fail gate**: At least one fixture breaches thresholds.
 
-`warn` is migration-informational and does **not** flip compiler defaults.
+In release-readiness CI (`tests/ci-cpp17-readiness-review`), any threshold breach is
+treated as a blocking failure (non-zero exit) for the default-flip gate.
 
 ## Usage
 
