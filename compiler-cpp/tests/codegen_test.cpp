@@ -132,6 +132,22 @@ int main() {
                 "boolean grouping/parenthesization emitted");
     ok &= Check(c.find("m_ref_mix = lit() + a();") != std::string::npos,
                 "instance-to-instance and field refs emitted");
+
+    kscpp::ir::Instance bitwise;
+    bitwise.id = "bitwise";
+    bitwise.value_expr = kscpp::ir::Expr::Binary("|",
+        kscpp::ir::Expr::Binary("<<", kscpp::ir::Expr::Name("a"), kscpp::ir::Expr::Int(2)),
+        kscpp::ir::Expr::Unary("~", kscpp::ir::Expr::Name("b")));
+    spec.instances.push_back(bitwise);
+
+    auto r_bitwise = kscpp::codegen::EmitCppStl17FromIr(spec, options);
+    ok &= Check(r_bitwise.ok, "extended bitwise expression codegen succeeds");
+    const std::string c_bitwise = ReadAll(out / "expr_subset_a.cpp");
+    ok &= Check(c_bitwise.find("m_bitwise =") != std::string::npos &&
+                c_bitwise.find("<< 2") != std::string::npos &&
+                c_bitwise.find("~b()") != std::string::npos &&
+                c_bitwise.find("|") != std::string::npos,
+                "bitwise/shift/unary-not operators emitted");
   }
 
 
@@ -403,6 +419,31 @@ int main() {
     ok &= Check(!r.ok, "unsupported validation target fails");
     ok &= Check(r.error.find("validation target outside attrs/instances") != std::string::npos,
                 "unsupported validation target has explicit diagnostic");
+  }
+
+  {
+    kscpp::ir::Spec unsupported_expr;
+    unsupported_expr.name = "unsupported_expr";
+    unsupported_expr.default_endian = kscpp::ir::Endian::kLe;
+
+    kscpp::ir::Attr one;
+    one.id = "one";
+    one.type.kind = kscpp::ir::TypeRef::Kind::kPrimitive;
+    one.type.primitive = kscpp::ir::PrimitiveType::kU1;
+    unsupported_expr.attrs.push_back(one);
+
+    kscpp::ir::Instance bad_op;
+    bad_op.id = "bad_op";
+    bad_op.value_expr = kscpp::ir::Expr::Binary("**", kscpp::ir::Expr::Name("one"), kscpp::ir::Expr::Int(2));
+    unsupported_expr.instances.push_back(bad_op);
+
+    kscpp::CliOptions options;
+    options.out_dir = (std::filesystem::temp_directory_path() / "kscpp_codegen_test_unsupported_expr").string();
+
+    auto r = kscpp::codegen::EmitCppStl17FromIr(unsupported_expr, options);
+    ok &= Check(!r.ok, "unsupported expression operator fails");
+    ok &= Check(r.error.find("binary operator \"**\"") != std::string::npos,
+                "unsupported expression operator has explicit diagnostic");
   }
 
   return ok ? 0 : 1;
