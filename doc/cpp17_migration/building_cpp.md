@@ -66,7 +66,7 @@ unset KAITAI_COMPILER_ENGINE
 
 - `Unknown KAITAI_COMPILER_ENGINE=...`: use `scala` or `cpp17`.
 - `build-formats: cpp17 engine currently supports only target=cpp_stl`: re-run with `./tests/build-formats cpp_stl`.
-- `Scala stage compiler missing`: run `./tests/build-compiler` (Scala stage build is still required to emit migration IR).
+- Native `.ksy` frontend/import/lowering now runs in-process in `kscpp`; Scala stage build is no longer required for this path.
 - `C++17 compiler missing`: run:
   ```sh
   cmake -S compiler-cpp -B compiler-cpp/build

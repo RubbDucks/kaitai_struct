@@ -2,7 +2,9 @@
 #define KAITAI_STRUCT_COMPILER_CPP_FRONTEND_H_
 
 #include <filesystem>
+#include <optional>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include "cli_options.h"
@@ -17,10 +19,13 @@ struct Result {
 
 struct ParsedInput {
   std::filesystem::path source_path;
+  std::string module_name;
+  std::vector<std::string> imports;
 };
 
 struct ParsedInputs {
   std::vector<ParsedInput> files;
+  std::unordered_map<std::string, ir::Spec> lowered_by_path;
 };
 
 Result ParseKsyInputs(const CliOptions& options, ParsedInputs* out);

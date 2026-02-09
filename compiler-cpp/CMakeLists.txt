@@ -58,9 +58,16 @@ add_executable(kscpp_codegen_tests
 )
 target_link_libraries(kscpp_codegen_tests PRIVATE kscpp_codegen kscpp_cli kscpp_ir)
 
+add_executable(kscpp_frontend_tests
+  tests/frontend_test.cpp
+)
+target_link_libraries(kscpp_frontend_tests PRIVATE kscpp_frontend kscpp_cli kscpp_ir)
+
+
 add_test(NAME kscpp_cli_unit_tests COMMAND kscpp_cli_tests)
 add_test(NAME kscpp_ir_unit_tests COMMAND kscpp_ir_tests)
 add_test(NAME kscpp_codegen_unit_tests COMMAND kscpp_codegen_tests)
+add_test(NAME kscpp_frontend_unit_tests COMMAND kscpp_frontend_tests)
 
 add_test(NAME kscpp_version_experimental COMMAND kscpp --version)
 set_tests_properties(kscpp_version_experimental PROPERTIES
