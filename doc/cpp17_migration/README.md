@@ -62,6 +62,10 @@ The `migration differential (selective blocking)` step runs `tests/ci-cpp17-diff
 
 Fixture gate assignment is declared in `tests/migration_golden/cpp17_differential_fixtures.tsv`.
 
+Build-format exclusions for intentional partial generation are declared in `tests/migration_golden/build_formats_exclusions.tsv` and must be kept in sync with this document and migration fixtures. Unexpected generation failures now fail `tests/build-formats` via summary gating.
+
+Current expected exclusions: see `tests/migration_golden/build_formats_exclusions.tsv` (currently 260 excluded specs per active cpp17 target during migration).
+
 
 ## Target differential coverage (active fork targets)
 
