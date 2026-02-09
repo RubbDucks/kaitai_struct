@@ -28,10 +28,16 @@ add_library(kscpp_codegen STATIC
 target_include_directories(kscpp_codegen PUBLIC src)
 target_compile_features(kscpp_codegen PUBLIC cxx_std_17)
 
+add_library(kscpp_frontend STATIC
+  src/frontend.cpp
+)
+target_include_directories(kscpp_frontend PUBLIC src)
+target_compile_features(kscpp_frontend PUBLIC cxx_std_17)
+
 add_executable(kscpp
   src/main.cpp
 )
-target_link_libraries(kscpp PRIVATE kscpp_cli kscpp_ir kscpp_codegen)
+target_link_libraries(kscpp PRIVATE kscpp_cli kscpp_ir kscpp_codegen kscpp_frontend)
 target_compile_features(kscpp PRIVATE cxx_std_17)
 
 enable_testing()
