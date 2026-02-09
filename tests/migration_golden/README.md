@@ -2,6 +2,8 @@
 
 - Fixture inventory: `fixtures.tsv`
 - Differential fixture inventory for C++17 migration checks (active fork targets): `cpp17_differential_fixtures.tsv`
+- Build-formats exclusion inventory (explicitly allowed generation failures only): `build_formats_exclusions.tsv`
+- Build-formats summary validator used by CI wrappers: `require_build_formats_summary.py`
 - Snapshot generator: `generate_scala_snapshots.sh`
 - Text normalizer: `normalize_compiler_output.py`
 - Differential runner (Scala vs C++17 IR backend): `run_cpp17_differential.py`

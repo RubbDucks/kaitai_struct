@@ -3,8 +3,12 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OUT_DIR="$ROOT_DIR/tests/test_out/migration_differential"
+BUILD_SUMMARY="$OUT_DIR/build-formats-cpp_stl-summary.json"
 
-"$ROOT_DIR/tests/migration_golden/run_cpp17_differential.py" \
-  --fixtures "$ROOT_DIR/tests/migration_golden/cpp17_differential_fixtures.tsv" \
-  --output-dir "$OUT_DIR" \
-  --enforce-gate required
+mkdir -p "$OUT_DIR"
+
+echo "[ci-cpp17-differential] generating cpp_stl formats with cpp17 engine"
+BUILD_FORMATS_SUMMARY_PATH="$BUILD_SUMMARY" KAITAI_COMPILER_ENGINE=cpp17 "$ROOT_DIR/tests/build-formats" cpp_stl
+python3 "$ROOT_DIR/tests/migration_golden/require_build_formats_summary.py"   "$BUILD_SUMMARY" --expect-engine cpp17 --expect-target cpp_stl
+
+"$ROOT_DIR/tests/migration_golden/run_cpp17_differential.py"   --fixtures "$ROOT_DIR/tests/migration_golden/cpp17_differential_fixtures.tsv"   --output-dir "$OUT_DIR"   --enforce-gate required
