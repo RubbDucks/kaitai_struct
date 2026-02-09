@@ -301,6 +301,28 @@ int main() {
     attr.type.primitive = kscpp::ir::PrimitiveType::kU1;
     spec.attrs.push_back(attr);
 
+    kscpp::ir::Attr payload;
+    payload.id = "payload";
+    payload.type.kind = kscpp::ir::TypeRef::Kind::kPrimitive;
+    payload.type.primitive = kscpp::ir::PrimitiveType::kBytes;
+    payload.size_expr = kscpp::ir::Expr::Int(2);
+    kscpp::ir::Attr::Process process;
+    process.kind = kscpp::ir::Attr::Process::Kind::kXorConst;
+    process.xor_const = 255;
+    payload.process = process;
+    spec.attrs.push_back(payload);
+
+    kscpp::ir::Instance inst;
+    inst.id = "is_nonzero";
+    inst.value_expr = kscpp::ir::Expr::Binary("!=", kscpp::ir::Expr::Name("one"), kscpp::ir::Expr::Int(0));
+    spec.instances.push_back(inst);
+
+    kscpp::ir::Validation val;
+    val.target = "one";
+    val.condition_expr = kscpp::ir::Expr::Binary("!=", kscpp::ir::Expr::Name("one"), kscpp::ir::Expr::Int(0));
+    val.message = "one must be non-zero";
+    spec.validations.push_back(val);
+
     const std::filesystem::path out = std::filesystem::temp_directory_path() / "kscpp_codegen_script_target_test";
     std::filesystem::remove_all(out);
 
@@ -310,8 +332,12 @@ int main() {
       auto r = kscpp::codegen::EmitLuaFromIr(spec, options);
       ok &= Check(r.ok, "lua codegen succeeds");
       ok &= Check(std::filesystem::exists(out / "script_target_smoke.lua"), "lua module emitted");
-      ok &= Check(ReadAll(out / "script_target_smoke.lua").find("target: lua") != std::string::npos,
-                  "lua output identifies target");
+      const auto text = ReadAll(out / "script_target_smoke.lua");
+      ok &= Check(text.find("KaitaiStream.process_xor_one") != std::string::npos,
+                  "lua output maps process_xor_const to runtime API");
+      auto r2 = kscpp::codegen::EmitLuaFromIr(spec, options);
+      ok &= Check(r2.ok && text == ReadAll(out / "script_target_smoke.lua"),
+                  "lua output is deterministic");
     }
 
     {
@@ -319,8 +345,8 @@ int main() {
       options.out_dir = out.string();
       auto r = kscpp::codegen::EmitWiresharkLuaFromIr(spec, options);
       ok &= Check(r.ok, "wireshark_lua codegen succeeds");
-      ok &= Check(ReadAll(out / "script_target_smoke.lua").find("target: wireshark_lua") != std::string::npos,
-                  "wireshark lua output identifies target");
+      ok &= Check(ReadAll(out / "script_target_smoke.lua").find("class.class") != std::string::npos,
+                  "wireshark lua output emits parser class body");
     }
 
     {
@@ -331,8 +357,15 @@ int main() {
       ok &= Check(r.ok, "python codegen succeeds");
       const auto py_path = out / "pkg" / "subpkg" / "script_target_smoke.py";
       ok &= Check(std::filesystem::exists(py_path), "python module emitted under package path");
-      ok &= Check(ReadAll(py_path).find("target: python") != std::string::npos,
-                  "python output identifies target");
+      const auto text = ReadAll(py_path);
+      ok &= Check(text.find("class script_target_smoke(KaitaiStruct)") != std::string::npos,
+                  "python parser class emitted");
+      ok &= Check(text.find("ValidationExprError") != std::string::npos,
+                  "python valid-expression support emitted");
+      ok &= Check(text.find("@property") != std::string::npos,
+                  "python instances emitted as cached properties");
+      auto r2 = kscpp::codegen::EmitPythonFromIr(spec, options);
+      ok &= Check(r2.ok && text == ReadAll(py_path), "python output is deterministic");
     }
 
     {
@@ -341,8 +374,14 @@ int main() {
       auto r = kscpp::codegen::EmitRubyFromIr(spec, options);
       ok &= Check(r.ok, "ruby codegen succeeds");
       ok &= Check(std::filesystem::exists(out / "script_target_smoke.rb"), "ruby module emitted");
-      ok &= Check(ReadAll(out / "script_target_smoke.rb").find("target: ruby") != std::string::npos,
-                  "ruby output identifies target");
+      const auto text = ReadAll(out / "script_target_smoke.rb");
+      ok &= Check(text.find("class script_target_smoke < Kaitai::Struct::Struct") != std::string::npos,
+                  "ruby parser class emitted");
+      ok &= Check(text.find("ValidationExprError") != std::string::npos,
+                  "ruby valid-expression support emitted");
+      auto r2 = kscpp::codegen::EmitRubyFromIr(spec, options);
+      ok &= Check(r2.ok && text == ReadAll(out / "script_target_smoke.rb"),
+                  "ruby output is deterministic");
     }
   }
 

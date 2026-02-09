@@ -19,3 +19,9 @@ lua_hello_world	primitives	success	tests/formats/hello_world.ksy	lua	match_scala
 wireshark_lua_hello_world	primitives	success	tests/formats/hello_world.ksy	wireshark_lua	match_scala_vs_cpp17_ir		required
 python_hello_world	primitives	success	tests/formats/hello_world.ksy	python	match_scala_vs_cpp17_ir		required
 ruby_hello_world	primitives	success	tests/formats/hello_world.ksy	ruby	match_scala_vs_cpp17_ir		required
+lua_instance_std	instances	success	tests/formats/instance_std.ksy	lua	match_scala_vs_cpp17_ir		required
+python_repeat_n_bytes	repeats	success	tests/formats/repeat_n_bytes.ksy	python	match_scala_vs_cpp17_ir		required
+ruby_switch_integers	switch-on	success	tests/formats/switch_integers.ksy	ruby	match_scala_vs_cpp17_ir		required
+lua_valid_fail_eq_int	validation	success	tests/formats/valid_fail_eq_int.ksy	lua	match_scala_vs_cpp17_ir		required
+python_process_xor_const	process	success	tests/formats/process_xor_const.ksy	python	match_scala_vs_cpp17_ir		required
+ruby_instance_std	instances	success	tests/formats/instance_std.ksy	ruby	match_scala_vs_cpp17_ir		required
