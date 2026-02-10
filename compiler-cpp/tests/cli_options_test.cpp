@@ -54,7 +54,13 @@ int main() {
   }
 
   {
-    auto r = Parse({"kscpp", "-t", "python", "--read-write", "--debug", "--import-path", "a:b",
+    const std::string import_path_value =
+#ifdef _WIN32
+        "a;b";
+#else
+        "a:b";
+#endif
+    auto r = Parse({"kscpp", "-t", "python", "--read-write", "--debug", "--import-path", import_path_value,
                     "in.ksy"});
     ok &= Check(r.status == kscpp::ParseStatus::kOk, "valid parse status");
     ok &= Check(r.options.targets.size() == 1 && r.options.targets[0] == "python", "target parsed");

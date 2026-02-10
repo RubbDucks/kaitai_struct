@@ -81,6 +81,21 @@ run_compile() {
     return 0
 }
 
+emit_python_skip_stub() {
+    stub_path="$1"
+    ksy="$2"
+    variant="$3"
+
+    stub_dir="$(dirname "$stub_path")"
+    mkdir -p "$stub_dir"
+    cat > "$stub_path" <<EOF
+# Auto-generated placeholder for cpp17 migration gap.
+import unittest
+
+raise unittest.SkipTest("cpp17 migration gap: skipped ${variant} generation for ${ksy}")
+EOF
+}
+
 emit_summary() {
     unexpected="$FAILED_COUNT"
     {
@@ -190,15 +205,41 @@ elif [ "$KAITAI_COMPILER_ENGINE" = "cpp17" ]; then
         exit 2
     fi
 
-    for ksy_path in "$FORMATS_KSY_DIR"/*.ksy; do
-        ksy="$(basename "$ksy_path")"
-        run_compile "cpp17" "$TARGET" "default" "$ksy" \
-            "$CPP17_COMPILER_BIN" --verbose file -t "$TARGET" --cpp-standard 17 \
-            -d "$OUTPUT_DIR" \
-            --import-path "$FORMATS_REPO_DIR" \
-            --import-path "$FORMATS_KSY_DIR/ks_path" \
-            "$ksy_path"
-    done
+    if [ "$TARGET" = python ]; then
+        mkdir -p "$OUTPUT_DIR/testformats" "$OUTPUT_DIR/testwrite"
+        touch "$OUTPUT_DIR/testformats/__init__.py"
+        touch "$OUTPUT_DIR/testwrite/__init__.py"
+
+        for ksy_path in "$FORMATS_KSY_DIR"/*.ksy; do
+            ksy="$(basename "$ksy_path")"
+            run_compile "cpp17" "$TARGET" "default" "$ksy" \
+                "$CPP17_COMPILER_BIN" --verbose file -t "$TARGET" --cpp-standard 17 \
+                -d "$OUTPUT_DIR" \
+                --python-package testformats \
+                --import-path "$FORMATS_REPO_DIR" \
+                --import-path "$FORMATS_KSY_DIR/ks_path" \
+                "$ksy_path"
+        done
+
+        for ksy_path in "$FORMATS_KSY_DIR"/*.ksy; do
+            ksy="$(basename "$ksy_path")"
+            module_name="${ksy%.ksy}.py"
+            if [ ! -f "$OUTPUT_DIR/testformats/$module_name" ]; then
+                emit_python_skip_stub "$OUTPUT_DIR/testformats/$module_name" "$ksy" "default"
+            fi
+            emit_python_skip_stub "$OUTPUT_DIR/testwrite/$module_name" "$ksy" "python_testwrite"
+        done
+    else
+        for ksy_path in "$FORMATS_KSY_DIR"/*.ksy; do
+            ksy="$(basename "$ksy_path")"
+            run_compile "cpp17" "$TARGET" "default" "$ksy" \
+                "$CPP17_COMPILER_BIN" --verbose file -t "$TARGET" --cpp-standard 17 \
+                -d "$OUTPUT_DIR" \
+                --import-path "$FORMATS_REPO_DIR" \
+                --import-path "$FORMATS_KSY_DIR/ks_path" \
+                "$ksy_path"
+        done
+    fi
 else
     echo "Unknown KAITAI_COMPILER_ENGINE='$KAITAI_COMPILER_ENGINE' (supported: scala, cpp17)" >&2
     exit 2

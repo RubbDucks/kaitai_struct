@@ -1,5 +1,6 @@
 #include "codegen.h"
 
+#include <cctype>
 #include <filesystem>
 #include <fstream>
 #include <functional>
@@ -47,6 +48,29 @@ std::string NormalizeOp(const std::string& op) {
   if (op == "not")
     return "!";
   return op;
+}
+
+std::string ToUpperCamelIdentifier(const std::string& value) {
+  std::string out;
+  out.reserve(value.size());
+  bool uppercase_next = true;
+  for (char c : value) {
+    const unsigned char uc = static_cast<unsigned char>(c);
+    if (std::isalnum(uc) == 0) {
+      uppercase_next = true;
+      continue;
+    }
+    if (uppercase_next) {
+      out.push_back(static_cast<char>(std::toupper(uc)));
+      uppercase_next = false;
+    } else {
+      out.push_back(c);
+    }
+  }
+  if (out.empty() || std::isdigit(static_cast<unsigned char>(out[0])) != 0) {
+    out.insert(out.begin(), '_');
+  }
+  return out;
 }
 
 int ExprPrecedence(const ir::Expr& expr) {
@@ -645,6 +669,7 @@ bool WriteFile(const std::filesystem::path& path, const std::string& content, st
 
 
 std::string RenderPythonModule(const ir::Spec& spec) {
+  const std::string class_name = ToUpperCamelIdentifier(spec.name);
   std::set<std::string> attrs;
   for (const auto& a : spec.attrs) attrs.insert(a.id);
   std::set<std::string> known_instances;
@@ -713,7 +738,7 @@ std::string RenderPythonModule(const ir::Spec& spec) {
   std::ostringstream out;
   out << "# This is a generated file! Please edit source .ksy file and use kaitai-struct-compiler to rebuild\n";
   out << "from kaitaistruct import KaitaiStruct, KaitaiStream, ValidationExprError\n\n";
-  out << "class " << spec.name << "(KaitaiStruct):\n";
+  out << "class " << class_name << "(KaitaiStruct):\n";
   out << "    def __init__(self, _io, _parent=None, _root=None):\n";
   out << "        self._io = _io\n";
   out << "        self._parent = _parent\n";
@@ -764,6 +789,7 @@ std::string RenderPythonModule(const ir::Spec& spec) {
 }
 
 std::string RenderRubyModule(const ir::Spec& spec) {
+  const std::string class_name = ToUpperCamelIdentifier(spec.name);
   std::set<std::string> attrs;
   for (const auto& a : spec.attrs) attrs.insert(a.id);
   std::set<std::string> known_instances;
@@ -794,7 +820,7 @@ std::string RenderRubyModule(const ir::Spec& spec) {
   std::ostringstream out;
   out << "# This is a generated file! Please edit source .ksy file and use kaitai-struct-compiler to rebuild\n";
   out << "require 'kaitai/struct/struct'\n\n";
-  out << "class " << spec.name << " < Kaitai::Struct::Struct\n";
+  out << "class " << class_name << " < Kaitai::Struct::Struct\n";
   out << "  def initialize(_io, _parent = nil, _root = nil)\n";
   out << "    super(_io)\n    @_parent = _parent\n    @_root = _root || self\n    _read\n  end\n\n";
   out << "  def _read\n";
@@ -831,6 +857,7 @@ std::string RenderRubyModule(const ir::Spec& spec) {
 }
 
 std::string RenderLuaModule(const ir::Spec& spec) {
+  const std::string class_name = ToUpperCamelIdentifier(spec.name);
   const auto user_types = BuildUserTypeMap(spec);
   std::set<std::string> attrs;
   for (const auto& a : spec.attrs) attrs.insert(a.id);
@@ -875,10 +902,10 @@ std::string RenderLuaModule(const ir::Spec& spec) {
   out << "local class = require('class')\n";
   out << "require('kaitaistruct')\n";
   out << "local KaitaiStream = require('kaitaistruct').KaitaiStream\n\n";
-  out << spec.name << " = class.class(KaitaiStruct)\n\n";
-  out << "function " << spec.name << ":_init(io, parent, root)\n";
+  out << class_name << " = class.class(KaitaiStruct)\n\n";
+  out << "function " << class_name << ":_init(io, parent, root)\n";
   out << "  self._io = io\n  self._parent = parent\n  self._root = root or self\n  self:_read()\nend\n\n";
-  out << "function " << spec.name << ":_read()\n";
+  out << "function " << class_name << ":_read()\n";
 
   for (const auto& attr : spec.attrs) {
     const auto primitive = ResolvePrimitiveType(attr.type, user_types).value_or(ir::PrimitiveType::kU1);
@@ -923,7 +950,7 @@ std::string RenderLuaModule(const ir::Spec& spec) {
   out << "end\n";
 
   for (const auto& inst : spec.instances) {
-    out << "\nfunction " << spec.name << ":" << inst.id << "()\n";
+    out << "\nfunction " << class_name << ":" << inst.id << "()\n";
     out << "  if self._m_" << inst.id << " ~= nil then return self._m_" << inst.id << " end\n";
     out << "  self._m_" << inst.id << " = " << expr(inst.value_expr, -1, "") << "\n";
     out << "  return self._m_" << inst.id << "\n";
@@ -931,7 +958,7 @@ std::string RenderLuaModule(const ir::Spec& spec) {
     known_instances.insert(inst.id);
   }
 
-  out << "\nreturn " << spec.name << "\n";
+  out << "\nreturn " << class_name << "\n";
   return out.str();
 }
 

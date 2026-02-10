@@ -374,7 +374,7 @@ int main() {
       const auto py_path = out / "pkg" / "subpkg" / "script_target_smoke.py";
       ok &= Check(std::filesystem::exists(py_path), "python module emitted under package path");
       const auto text = ReadAll(py_path);
-      ok &= Check(text.find("class script_target_smoke(KaitaiStruct)") != std::string::npos,
+      ok &= Check(text.find("class ScriptTargetSmoke(KaitaiStruct)") != std::string::npos,
                   "python parser class emitted");
       ok &= Check(text.find("ValidationExprError") != std::string::npos,
                   "python valid-expression support emitted");
@@ -391,7 +391,7 @@ int main() {
       ok &= Check(r.ok, "ruby codegen succeeds");
       ok &= Check(std::filesystem::exists(out / "script_target_smoke.rb"), "ruby module emitted");
       const auto text = ReadAll(out / "script_target_smoke.rb");
-      ok &= Check(text.find("class script_target_smoke < Kaitai::Struct::Struct") != std::string::npos,
+      ok &= Check(text.find("class ScriptTargetSmoke < Kaitai::Struct::Struct") != std::string::npos,
                   "ruby parser class emitted");
       ok &= Check(text.find("ValidationExprError") != std::string::npos,
                   "ruby valid-expression support emitted");
