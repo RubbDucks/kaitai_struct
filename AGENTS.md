@@ -252,3 +252,5 @@ When editing `.ksy` specs or generator logic, keep these core concepts in mind:
 - On MinGW, `runtime/cpp_stl/kaitai/kaitaistream.cpp` needs a `__MINGW32__` endianness branch (no `<endian.h>`), and `runtime/cpp_stl/kaitai/kaitaistruct.h` should expose virtual `_parent()` for newer generated code paths.
 - On Windows Lua (MSYS2/UCRT), `os.execute` follows `cmd.exe` semantics; iconv CLI fallbacks must use Windows quoting rules and `NUL` instead of POSIX single-quote + `/dev/null`.
 - On Scala Python builds in this fork, generating read modules directly into `compiled/python/testformats` is more reliable on Windows than generating into `compiled/python` and moving directories afterwards.
+
+- GCC/Linux C++17 builds can fail with "invalid covariant return type" in generated nested `_parent()` methods if `runtime/cpp_stl/kaitai/kaitaistruct.h` declares `_parent()` as `virtual`; keep that base `_parent()` non-virtual for `tests/run-cpp_stl_17`.
