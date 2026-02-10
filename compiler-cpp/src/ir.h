@@ -114,8 +114,19 @@ struct EnumDef {
 };
 
 struct Instance {
+  enum class Kind {
+    kValue,
+    kParse,
+  };
+
   std::string id;
+  Kind kind = Kind::kValue;
   Expr value_expr;
+  TypeRef type;
+  std::optional<Endian> endian_override;
+  std::optional<Expr> size_expr;
+  std::optional<std::string> encoding;
+  std::optional<Expr> pos_expr;
 };
 
 struct Validation {

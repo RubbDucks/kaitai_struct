@@ -12,6 +12,10 @@ object MigrationIr {
     out.append("KSIR1\n")
     out.append(s"name ${quote(spec.nameAsStr)}\n")
     out.append(s"default_endian ${endianToIr(spec.meta.endian.collect { case f: FixedEndian => f })}\n")
+    out.append(s"imports ${spec.meta.imports.size}\n")
+    spec.meta.imports.foreach { imp =>
+      out.append(s"import ${quote(imp)}\n")
+    }
 
     val types = spec.types.values.toList.map(t => TypeRow(t.name.lastOption.getOrElse(t.nameAsStr), TypeRef.user(t.nameAsStr)))
     out.append(s"types ${types.size}\n")
@@ -42,10 +46,37 @@ object MigrationIr {
       }
     }
 
-    val valueInstances = spec.instances.values.collect { case v: ValueInstanceSpec => v }.toList
-    out.append(s"instances ${valueInstances.size}\n")
-    valueInstances.foreach { inst =>
-      out.append(s"instance ${quote(inst.id.humanReadable)} ${quote(exprToIr(inst.value))}\n")
+    val allInstances = spec.instances.values.toList
+    out.append(s"instances ${allInstances.size}\n")
+    allInstances.foreach {
+      case inst: ValueInstanceSpec =>
+        out.append(s"instance ${quote(inst.id.humanReadable)} ${quote(exprToIr(inst.value))}\n")
+      case inst: ParseInstanceSpec =>
+        val tpe = typeRefFromDataType(inst.dataType)
+        val endian = inst.dataType match {
+          case IntMultiType(_, _, e) => e
+          case FloatMultiType(_, e) => e
+          case _ => None
+        }
+        val sizeExpr = inst.dataType match {
+          case BytesLimitType(size, _, _, _, _) => Some(size)
+          case StrFromBytesType(BytesLimitType(size, _, _, _, _), _) => Some(size)
+          case StrFromBytesTypeUnknownEncoding(BytesLimitType(size, _, _, _, _)) => Some(size)
+          case StrzType(BytesLimitType(size, _, _, _, _), _) => Some(size)
+          case _ => None
+        }
+        val encoding = inst.dataType match {
+          case StrFromBytesType(_, enc) => Some(enc)
+          case StrzType(_, Some(enc)) => Some(enc)
+          case _ => None
+        }
+        val endianStr = endian.map(e => endianToIr(Some(e))).getOrElse("none")
+        val sizeStr = sizeExpr.map(exprToIr).getOrElse("none")
+        val posStr = inst.pos.map(exprToIr).getOrElse("none")
+        out.append(
+          s"instance_parse ${quote(inst.id.humanReadable)} ${renderTypeRef(tpe)} " +
+            s"$endianStr ${quote(sizeStr)} ${quote(encoding.getOrElse("none"))} ${quote(posStr)}\n"
+        )
     }
 
     val validations = collectValidations(spec)

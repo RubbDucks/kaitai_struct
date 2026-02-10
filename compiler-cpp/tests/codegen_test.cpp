@@ -211,7 +211,7 @@ int main() {
     const std::string c = ReadAll(out / "type_subset.cpp");
     ok &= Check(h.find("enum class animal_e") != std::string::npos, "enum emitted");
     ok &= Check(h.find("double f8v() const") != std::string::npos, "float64 accessor emitted");
-    ok &= Check(h.find("const std::string& payload() const") != std::string::npos, "bytes accessor emitted");
+    ok &= Check(h.find("std::string payload() const") != std::string::npos, "bytes accessor emitted");
     ok &= Check(c.find("m_f4v = m__io->read_f4le();") != std::string::npos, "f4 read emitted");
     ok &= Check(c.find("m_payload = m__io->read_bytes(4);") != std::string::npos, "bytes read emitted");
     ok &= Check(c.find("read_bytes(3)") != std::string::npos && c.find("ASCII") != std::string::npos, "encoded string read emitted");
@@ -236,13 +236,18 @@ int main() {
 
     const std::string h = ReadAll(out / "control_flow_subset.h");
     const std::string c = ReadAll(out / "control_flow_subset.cpp");
-    ok &= Check(h.find("std::vector<uint8_t>") != std::string::npos, "repeat attrs use vector storage");
+    ok &= Check(h.find("std::unique_ptr<std::vector<uint8_t>>") != std::string::npos,
+                "repeat attrs use vector storage");
     ok &= Check(c.find("while (!m__io->is_eof())") != std::string::npos, "repeat-eos emitted");
-    ok &= Check(c.find("for (int i = 0; i < 2; i++)") != std::string::npos, "repeat-expr emitted");
+    ok &= Check(c.find("const int l_") != std::string::npos &&
+                c.find("for (int i = 0; i < l_") != std::string::npos,
+                "repeat-expr emitted");
     ok &= Check(c.find("do {") != std::string::npos && c.find("repeat_item == 255") != std::string::npos,
                 "repeat-until emitted");
     ok &= Check(c.find("if (opcode() == 1)") != std::string::npos, "if-conditional field emitted");
-    ok &= Check(c.find("if (opcode() == 1)") != std::string::npos && c.find("if (opcode() == 2)") != std::string::npos,
+    ok &= Check(c.find("switch (opcode())") != std::string::npos &&
+                c.find("case 1:") != std::string::npos &&
+                c.find("case 2:") != std::string::npos,
                 "switch-on cases emitted");
   }
 

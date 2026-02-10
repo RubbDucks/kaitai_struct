@@ -2,6 +2,8 @@
 import argparse
 import difflib
 import json
+import os
+import re
 import shutil
 import subprocess
 import sys
@@ -31,6 +33,46 @@ class Fixture:
 
 class DifferentialFailure(RuntimeError):
     pass
+
+
+def resolve_executable(path: Path) -> Path:
+    if sys.platform.startswith("win32"):
+        with_bat = path.with_suffix(".bat")
+        if with_bat.exists():
+            return with_bat
+        with_exe = path.with_suffix(".exe")
+        if with_exe.exists():
+            return with_exe
+    if path.exists():
+        return path
+    return path
+
+
+def cli_path(path: Path, windows_compat: bool) -> str:
+    text = str(path)
+    if windows_compat:
+        return text.replace("/", "\\")
+    return text
+
+
+def tool_env() -> dict[str, str]:
+    env = os.environ.copy()
+    if not sys.platform.startswith("win32"):
+        return env
+
+    java_home = env.get("JAVA_HOME")
+    if java_home:
+        java_bin = Path(java_home) / "bin" / "java.exe"
+        if java_bin.exists():
+            env["PATH"] = f"{java_bin.parent};{env.get('PATH', '')}"
+            return env
+
+    bundled_jdk = REPO_ROOT / ".tools" / "jdk21"
+    bundled_java = bundled_jdk / "bin" / "java.exe"
+    if bundled_java.exists():
+        env["JAVA_HOME"] = str(bundled_jdk)
+        env["PATH"] = f"{bundled_java.parent};{env.get('PATH', '')}"
+    return env
 
 
 def parse_args() -> argparse.Namespace:
@@ -85,8 +127,8 @@ def parse_fixtures(path: Path) -> list[Fixture]:
     return fixtures
 
 
-def run_checked(cmd: list[str], cwd: Path, stdout_path: Path, stderr_path: Path) -> None:
-    proc = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True)
+def run_checked(cmd: list[str], cwd: Path, stdout_path: Path, stderr_path: Path, env: dict[str, str] | None = None) -> None:
+    proc = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, env=env)
     stdout_path.write_text(proc.stdout, encoding="utf-8")
     stderr_path.write_text(proc.stderr, encoding="utf-8")
     if proc.returncode != 0:
@@ -96,8 +138,10 @@ def run_checked(cmd: list[str], cwd: Path, stdout_path: Path, stderr_path: Path)
         )
 
 
-def run_logged(cmd: list[str], cwd: Path, stdout_path: Path, stderr_path: Path) -> subprocess.CompletedProcess[str]:
-    proc = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True)
+def run_logged(
+    cmd: list[str], cwd: Path, stdout_path: Path, stderr_path: Path, env: dict[str, str] | None = None
+) -> subprocess.CompletedProcess[str]:
+    proc = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, env=env)
     stdout_path.write_text(proc.stdout, encoding="utf-8")
     stderr_path.write_text(proc.stderr, encoding="utf-8")
     return proc
@@ -118,6 +162,76 @@ def aggregate_generated_tree(out_dir: Path, fixture_id: str) -> str:
 
 def normalize(raw_file: Path, out_file: Path) -> None:
     subprocess.run([sys.executable, str(NORMALIZER), str(raw_file), str(out_file)], check=True)
+
+
+def parse_ir_imports(ir_path: Path) -> list[str]:
+    imports: list[str] = []
+    import_re = re.compile(r'^import\s+"(.*)"$')
+    for line in ir_path.read_text(encoding="utf-8").splitlines():
+        m = import_re.match(line.strip())
+        if m:
+            imports.append(m.group(1))
+    return imports
+
+
+def resolve_import_ksy(import_name: str, current_dir: Path) -> Path | None:
+    import_path = Path(import_name)
+    if import_path.suffix != ".ksy":
+        import_path = import_path.with_suffix(".ksy")
+    candidates = [
+        (current_dir / import_path),
+        (REPO_ROOT / "tests" / "formats" / import_path),
+        (REPO_ROOT / "formats" / import_path),
+    ]
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate.resolve()
+    return None
+
+
+def emit_import_ir_tree(
+    root_ksy: Path,
+    root_ir: Path,
+    scala_bin: Path,
+    fixture_target: str,
+    scala_out: Path,
+    scala_windows_compat: bool,
+    cmd_env: dict[str, str],
+    fixture_dir: Path,
+) -> None:
+    queue: list[tuple[Path, Path]] = [(root_ksy.resolve(), root_ir.resolve())]
+    seen_ir: set[Path] = {root_ir.resolve()}
+    while queue:
+        current_ksy, current_ir = queue.pop(0)
+        current_dir = current_ksy.parent
+        for imp in parse_ir_imports(current_ir):
+            imp_ksy = resolve_import_ksy(imp, current_dir)
+            if imp_ksy is None:
+                continue
+            imp_ir = root_ir.parent / f"{imp_ksy.stem}.ksir"
+            if imp_ir.resolve() in seen_ir:
+                continue
+            imp_cmd = [str(scala_bin), "--verbose", "file", "-t", fixture_target]
+            if fixture_target == "cpp_stl":
+                imp_cmd.extend(["--cpp-standard", "17"])
+            imp_cmd.extend(
+                [
+                    "--emit-ir",
+                    cli_path(imp_ir, scala_windows_compat),
+                    "-d",
+                    cli_path(scala_out, scala_windows_compat),
+                    cli_path(imp_ksy, scala_windows_compat),
+                ]
+            )
+            run_checked(
+                imp_cmd,
+                cwd=REPO_ROOT,
+                stdout_path=fixture_dir / f"scala.import.{imp_ksy.stem}.stdout.log",
+                stderr_path=fixture_dir / f"scala.import.{imp_ksy.stem}.stderr.log",
+                env=cmd_env,
+            )
+            seen_ir.add(imp_ir.resolve())
+            queue.append((imp_ksy.resolve(), imp_ir.resolve()))
 
 
 def summarize_diff(scala_text: str, cpp_text: str, max_lines: int) -> tuple[bool, dict]:
@@ -162,9 +276,9 @@ def normalize_diagnostic(stderr_text: str, max_lines: int = 12) -> dict:
 
 
 def ensure_tools() -> None:
-    if not SCALA_BIN.exists():
+    if not resolve_executable(SCALA_BIN).exists():
         raise DifferentialFailure("Scala stage compiler missing; run tests/build-compiler first")
-    if not KSCXX_BIN.exists():
+    if not resolve_executable(KSCXX_BIN).exists():
         raise DifferentialFailure("C++ compiler missing; run cmake -S compiler-cpp -B compiler-cpp/build && cmake --build compiler-cpp/build")
 
 
@@ -175,7 +289,12 @@ def run_fixture(fixture: Fixture, out_root: Path, max_diff_lines: int) -> dict:
     scala_out.mkdir(parents=True, exist_ok=True)
     cpp_out.mkdir(parents=True, exist_ok=True)
 
-    scala_cmd = [str(SCALA_BIN), "-t", fixture.target]
+    scala_bin = resolve_executable(SCALA_BIN)
+    kscxx_bin = resolve_executable(KSCXX_BIN)
+    scala_windows_compat = scala_bin.suffix.lower() == ".bat"
+    cmd_env = tool_env()
+
+    scala_cmd = [str(scala_bin), "--verbose", "file", "-t", fixture.target]
     if fixture.target == "cpp_stl":
         scala_cmd.extend(["--cpp-standard", "17"])
     scala_stdout = fixture_dir / "scala.stdout.log"
@@ -183,14 +302,32 @@ def run_fixture(fixture: Fixture, out_root: Path, max_diff_lines: int) -> dict:
 
     if fixture.mode == "success":
         ir_path = fixture_dir / f"{fixture.fixture_id}.ksir"
-        scala_cmd.extend(["--emit-ir", str(ir_path), "--", "-d", str(scala_out), str(fixture.ksy)])
-        run_checked(scala_cmd, cwd=REPO_ROOT, stdout_path=scala_stdout, stderr_path=scala_stderr)
+        scala_cmd.extend(
+            [
+                "--emit-ir",
+                cli_path(ir_path, scala_windows_compat),
+                "-d",
+                cli_path(scala_out, scala_windows_compat),
+                cli_path(fixture.ksy, scala_windows_compat),
+            ]
+        )
+        run_checked(scala_cmd, cwd=REPO_ROOT, stdout_path=scala_stdout, stderr_path=scala_stderr, env=cmd_env)
+        emit_import_ir_tree(
+            root_ksy=fixture.ksy,
+            root_ir=ir_path,
+            scala_bin=scala_bin,
+            fixture_target=fixture.target,
+            scala_out=scala_out,
+            scala_windows_compat=scala_windows_compat,
+            cmd_env=cmd_env,
+            fixture_dir=fixture_dir,
+        )
 
         if fixture.parity_criteria in ("match_scala_vs_cpp17_ir", "known_mismatch_allowed"):
 
             run_checked(
                 [
-                    str(KSCXX_BIN),
+                    str(kscxx_bin),
                     "--from-ir",
                     str(ir_path),
                     "-t",
@@ -203,6 +340,7 @@ def run_fixture(fixture: Fixture, out_root: Path, max_diff_lines: int) -> dict:
                 cwd=REPO_ROOT,
                 stdout_path=fixture_dir / "cpp.stdout.log",
                 stderr_path=fixture_dir / "cpp.stderr.log",
+                env=cmd_env,
             )
 
             scala_raw = fixture_dir / "scala.raw"
@@ -238,8 +376,14 @@ def run_fixture(fixture: Fixture, out_root: Path, max_diff_lines: int) -> dict:
         else:
             raise DifferentialFailure(f"Unknown parity criteria '{fixture.parity_criteria}' for fixture {fixture.fixture_id}")
     else:
-        scala_cmd.extend(["--", "-d", str(scala_out), str(fixture.ksy)])
-        scala_proc = run_logged(scala_cmd, cwd=REPO_ROOT, stdout_path=scala_stdout, stderr_path=scala_stderr)
+        scala_cmd.extend(
+            [
+                "-d",
+                cli_path(scala_out, scala_windows_compat),
+                cli_path(fixture.ksy, scala_windows_compat),
+            ]
+        )
+        scala_proc = run_logged(scala_cmd, cwd=REPO_ROOT, stdout_path=scala_stdout, stderr_path=scala_stderr, env=cmd_env)
         scala_diag = normalize_diagnostic(scala_proc.stderr)
         if scala_proc.returncode == 0:
             raise DifferentialFailure("Expected Scala compiler failure for mode=error fixture, but command succeeded")
@@ -248,8 +392,7 @@ def run_fixture(fixture: Fixture, out_root: Path, max_diff_lines: int) -> dict:
         cpp_proc = None
         if fixture.target == "cpp_stl" and fixture.parity_criteria != "scala_oracle_only":
             cpp_cmd = [
-                str(KSCXX_BIN),
-                "file",
+                str(kscxx_bin),
                 "-t",
                 fixture.target,
                 "--cpp-standard",
@@ -263,6 +406,7 @@ def run_fixture(fixture: Fixture, out_root: Path, max_diff_lines: int) -> dict:
                 cwd=REPO_ROOT,
                 stdout_path=fixture_dir / "cpp.stdout.log",
                 stderr_path=fixture_dir / "cpp.stderr.log",
+                env=cmd_env,
             )
             cpp_diag = normalize_diagnostic(cpp_proc.stderr)
 

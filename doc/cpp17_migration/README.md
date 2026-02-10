@@ -54,6 +54,13 @@ Promotion is rollback-free only when:
 - `ir_spec.md`: IR invariants during transition.
 - `benchmark_trends.md`: stability/perf tracking while converging.
 
+Documented gate examples (must match `tests/migration_golden/cpp17_differential_fixtures.tsv`):
+
+<!-- gate-examples:start -->
+- required: `cpp17_empty_parity`, `cpp17_hello_world`, `python_hello_world`
+- visibility: _(none)_
+<!-- gate-examples:end -->
+
 ## Policy
 
 Until all done gates are met, cpp17 remains in migration/readiness mode.

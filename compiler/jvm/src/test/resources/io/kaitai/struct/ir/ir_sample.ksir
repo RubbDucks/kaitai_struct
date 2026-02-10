@@ -1,6 +1,7 @@
 KSIR1
 name "ir_sample"
 default_endian le
+imports 0
 types 0
 attrs 2
 attr "len" primitive "u2" le "none" "none" "none" "none" "none" none "none" "none" 0

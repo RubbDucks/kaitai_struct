@@ -335,11 +335,17 @@ ValidationResult ResolveImportPath(const std::string& import_name,
   }
 
   for (const auto& candidate : candidates) {
-    std::error_code ec;
-    auto canon = std::filesystem::weakly_canonical(candidate, ec);
-    if (!ec && std::filesystem::exists(canon)) {
-      *resolved = canon;
-      return {true, ""};
+    std::vector<std::filesystem::path> probes{candidate};
+    if (candidate.extension().empty()) {
+      probes.push_back(candidate.string() + ".ksir");
+    }
+    for (const auto& probe : probes) {
+      std::error_code ec;
+      auto canon = std::filesystem::weakly_canonical(probe, ec);
+      if (!ec && std::filesystem::exists(canon)) {
+        *resolved = canon;
+        return {true, ""};
+      }
     }
   }
   return {false, "failed to resolve import: " + import_name + " from " + current_file.string()};
@@ -392,6 +398,13 @@ ValidationResult Validate(const Spec& spec) {
 
   std::unordered_set<std::string> declared_types;
   declared_types.insert(spec.name);
+  std::unordered_set<std::string> imported_types;
+  for (const auto& imp : spec.imports) {
+    std::filesystem::path p(imp);
+    std::string stem = p.stem().string();
+    if (stem.empty()) stem = p.filename().string();
+    if (!stem.empty()) imported_types.insert(stem);
+  }
   std::unordered_map<std::string, std::string> type_alias_edges;
 
   for (const auto& t : spec.types) {
@@ -409,6 +422,33 @@ ValidationResult Validate(const Spec& spec) {
     }
   }
 
+  auto ref_matches = [](const std::string& known, const std::string& ref) {
+    if (known == ref) return true;
+    if (known.size() > ref.size() &&
+        known.compare(known.size() - ref.size(), ref.size(), ref) == 0 &&
+        known[known.size() - ref.size() - 1] == ':') {
+      return true;
+    }
+    if (ref.size() > known.size() &&
+        ref.compare(ref.size() - known.size(), known.size(), known) == 0 &&
+        ref[ref.size() - known.size() - 1] == ':') {
+      return true;
+    }
+    return false;
+  };
+
+  auto is_known_user_type = [&](const std::string& type_name) {
+    if (declared_types.find(type_name) != declared_types.end()) return true;
+    for (const auto& t : declared_types) {
+      if (ref_matches(t, type_name)) return true;
+    }
+    if (imported_types.find(type_name) != imported_types.end()) return true;
+    for (const auto& t : imported_types) {
+      if (ref_matches(t, type_name)) return true;
+    }
+    return false;
+  };
+
   auto require_known_type = [&](const TypeRef& ref,
                                 const std::string& context) -> ValidationResult {
     if (ref.kind != TypeRef::Kind::kUser) {
@@ -417,7 +457,7 @@ ValidationResult Validate(const Spec& spec) {
     if (ref.user_type.empty()) {
       return {false, context + " user type reference requires user_type"};
     }
-    if (declared_types.find(ref.user_type) == declared_types.end()) {
+    if (!is_known_user_type(ref.user_type)) {
       return {false, context + " references unknown user type: " + ref.user_type};
     }
     return {true, ""};
@@ -518,6 +558,16 @@ ValidationResult Validate(const Spec& spec) {
     if (inst.id.empty()) {
       return {false, "instance.id is required"};
     }
+    if (inst.kind == Instance::Kind::kParse) {
+      auto type_check = require_known_type(inst.type, "instance");
+      if (!type_check.ok) return type_check;
+      if (inst.encoding.has_value()) {
+        if (inst.type.kind != TypeRef::Kind::kPrimitive ||
+            inst.type.primitive != PrimitiveType::kStr) {
+          return {false, "instance.encoding is only allowed for primitive str type"};
+        }
+      }
+    }
   }
 
   for (const auto& val : spec.validations) {
@@ -549,7 +599,7 @@ ValidationResult Validate(const Spec& spec) {
     const auto edge = type_alias_edges.find(name);
     if (edge != type_alias_edges.end()) {
       const std::string& target = edge->second;
-      if (declared_types.find(target) == declared_types.end()) {
+      if (!is_known_user_type(target)) {
         return {false,
                 std::string("type \"") + name + "\" references unknown user type: " + target};
       }
@@ -616,8 +666,30 @@ std::string Serialize(const Spec& spec) {
 
   out << "instances " << spec.instances.size() << "\n";
   for (const auto& i : spec.instances) {
-    out << "instance " << std::quoted(i.id) << " " << std::quoted(SerializeExpr(i.value_expr))
-        << "\n";
+    if (i.kind == Instance::Kind::kValue) {
+      out << "instance " << std::quoted(i.id) << " " << std::quoted(SerializeExpr(i.value_expr))
+          << "\n";
+    } else {
+      out << "instance_parse " << std::quoted(i.id) << " " << SerializeTypeRef(i.type) << " ";
+      if (i.endian_override.has_value()) {
+        out << EndianToString(*i.endian_override);
+      } else {
+        out << "none";
+      }
+      out << " ";
+      if (i.size_expr.has_value()) {
+        out << std::quoted(SerializeExpr(*i.size_expr));
+      } else {
+        out << std::quoted(std::string("none"));
+      }
+      out << " " << std::quoted(i.encoding.value_or("none")) << " ";
+      if (i.pos_expr.has_value()) {
+        out << std::quoted(SerializeExpr(*i.pos_expr));
+      } else {
+        out << std::quoted(std::string("none"));
+      }
+      out << "\n";
+    }
   }
 
   out << "validations " << spec.validations.size() << "\n";
@@ -928,14 +1000,57 @@ ValidationResult Deserialize(const std::string& encoded, Spec* out, bool validat
     std::istringstream row(line);
     std::string key;
     Instance inst;
-    std::string expr_text;
-    if (!(row >> key >> std::quoted(inst.id) >> std::quoted(expr_text)) || key != "instance") {
+    if (!(row >> key >> std::quoted(inst.id))) {
       return {false, "invalid instance row"};
     }
-    ExprParser parser{expr_text};
-    auto pe = parser.Parse(&inst.value_expr);
-    if (!pe.ok)
-      return pe;
+    if (key == "instance") {
+      std::string expr_text;
+      if (!(row >> std::quoted(expr_text))) {
+        return {false, "invalid instance row"};
+      }
+      inst.kind = Instance::Kind::kValue;
+      ExprParser parser{expr_text};
+      auto pe = parser.Parse(&inst.value_expr);
+      if (!pe.ok)
+        return pe;
+    } else if (key == "instance_parse") {
+      inst.kind = Instance::Kind::kParse;
+      auto p = ParseTypeRef(&row, &inst.type);
+      if (!p.ok) return p;
+      std::string endian_text;
+      std::string size_expr_text;
+      std::string encoding_text;
+      std::string pos_expr_text;
+      if (!(row >> endian_text >> std::quoted(size_expr_text) >> std::quoted(encoding_text) >>
+            std::quoted(pos_expr_text))) {
+        return {false, "invalid instance_parse row"};
+      }
+      if (endian_text != "none") {
+        Endian parsed;
+        auto e = EndianFromString(endian_text, &parsed);
+        if (!e.ok) return e;
+        inst.endian_override = parsed;
+      }
+      if (size_expr_text != "none") {
+        ExprParser size_parser{size_expr_text};
+        Expr parsed_size;
+        auto sp = size_parser.Parse(&parsed_size);
+        if (!sp.ok) return sp;
+        inst.size_expr = parsed_size;
+      }
+      if (encoding_text != "none") {
+        inst.encoding = encoding_text;
+      }
+      if (pos_expr_text != "none") {
+        ExprParser pos_parser{pos_expr_text};
+        Expr parsed_pos;
+        auto pp = pos_parser.Parse(&parsed_pos);
+        if (!pp.ok) return pp;
+        inst.pos_expr = parsed_pos;
+      }
+    } else {
+      return {false, "invalid instance row"};
+    }
     out->instances.push_back(inst);
   }
 
