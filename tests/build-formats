@@ -125,13 +125,22 @@ emit_summary() {
 if [ "$KAITAI_COMPILER_ENGINE" = "scala" ]; then
     echo "[compiler-engine] selected=scala script=build-formats target=$TARGET" >&2
 
+    if [ "$TARGET" = python ]; then
+        rm -rf "$FORMATS_COMPILED_DIR/python/testformats" "$FORMATS_COMPILED_DIR/python/testwrite"
+        mkdir -p "$FORMATS_COMPILED_DIR/python/testformats" "$FORMATS_COMPILED_DIR/python/testwrite"
+    fi
+
     # 	--java-from-file-class io.kaitai.struct.RandomAccessFileKaitaiStream \
 
     for ksy_path in "$FORMATS_KSY_DIR"/*.ksy; do
         ksy="$(basename "$ksy_path")"
+        target_output_dir="$OUTPUT_DIR"
+        if [ "$TARGET" = python ]; then
+            target_output_dir="$FORMATS_COMPILED_DIR/python/testformats"
+        fi
         run_compile "scala" "$TARGET" "default" "$ksy" \
             "$SCALA_COMPILER_BIN" -- \
-            --verbose file -t "$TARGET" -d "$OUTPUT_DIR" \
+            --verbose file -t "$TARGET" -d "$target_output_dir" \
             --import-path "$FORMATS_REPO_DIR" \
             --import-path "$FORMATS_KSY_DIR/ks_path" \
             --java-package io.kaitai.struct.testformats \
@@ -159,16 +168,6 @@ if [ "$KAITAI_COMPILER_ENGINE" = "scala" ]; then
     fi
 
     if [ "$TARGET" = python ] || [ "$TARGET" = all ]; then
-	    rm -rf "$FORMATS_COMPILED_DIR/python/testformats" "$FORMATS_COMPILED_DIR/python-tmp"
-	    if [ -d "$FORMATS_COMPILED_DIR/python" ]; then
-	        mv "$FORMATS_COMPILED_DIR/python" "$FORMATS_COMPILED_DIR/python-tmp"
-	    fi
-	    mkdir -p "$FORMATS_COMPILED_DIR/python"
-	    if [ -d "$FORMATS_COMPILED_DIR/python-tmp" ]; then
-	        mv "$FORMATS_COMPILED_DIR/python-tmp" "$FORMATS_COMPILED_DIR/python/testformats"
-	    else
-	        mkdir -p "$FORMATS_COMPILED_DIR/python/testformats"
-	    fi
      	# __init__.py is needed in Python 2
      	touch "$FORMATS_COMPILED_DIR/python/testformats/__init__.py"
 

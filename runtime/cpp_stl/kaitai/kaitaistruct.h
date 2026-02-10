@@ -9,6 +9,7 @@ class kstruct {
 public:
     kstruct(kstream *_io) { m__io = _io; }
     virtual ~kstruct() {}
+    virtual kstruct *_parent() const { return nullptr; }
 protected:
     kstream *m__io;
 public:

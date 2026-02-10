@@ -107,6 +107,7 @@ class CppBuilder < PartialBuilder
       -DINC_PATH=#{File.absolute_path(@disposable_cmake)}
       -DKS_PATH=#{File.absolute_path(@src_dir)}
     ]
+    cmake_cli += %w[-G Unix\ Makefiles] if @mode == :make_posix
     spec_dir = File.absolute_path(@cpp_spec_dir)
 
     Dir.chdir(@obj_dir) do
@@ -166,13 +167,17 @@ class CppBuilder < PartialBuilder
           l.chomp!
 
           case l
-          when /^(?:gmake|make)(?:\[\d+\])?: \*{3} \[(?:.+?:\d+: )?CMakeFiles\/ks_tests\.dir(\/.+?)\.o\] Error 1$/
+          when /^(?:gmake|make)(?:\[\d+\])?: \*{3} \[(?:.+?:\d+: )?CMakeFiles\/ks_tests\.dir(\/.+?)\.(?:o|obj)\] Error 1$/
             cpp_filepath = $1
 
             filename =
               # e.g. `cpp_filepath == "/test_process_coerce_switch.cpp"`
               if cpp_filepath == "/#{File.basename(cpp_filepath)}"
                 File.join(File.absolute_path(@cpp_spec_dir), cpp_filepath)
+              # MinGW Makefiles can emit object names like:
+              # `/C_/path/to/file.cpp.obj` for `C:/path/to/file.cpp`
+              elsif cpp_filepath =~ %r{^/([A-Za-z])_/(.+)$}
+                "#{$1}:/#{$2}"
               # otherwise, expect an absolute path (observed empirically)
               else
                 cpp_filepath
@@ -184,7 +189,7 @@ class CppBuilder < PartialBuilder
           # Since GNU ld 2.41 (commit
           # https://sourceware.org/git/?p=binutils-gdb.git;a=commit;h=02d2a36902c7b0fefe05e8d9bdbf11e846ac71fe),
           # `filename:linenumber:` is followed by `(section+offset):` (e.g. `(.text+0x106f):`).
-          when /^(?:\/usr\/bin\/ld: )?([^:]+?):(\d+):(?:\((.*?)\):)? undefined reference to /
+          when /^(?:\/usr\/bin\/ld: )?((?:[A-Za-z]:)?[^:]+?):(\d+):(?:\((.*?)\):)? undefined reference to /
             filename = $1
             #row = $2
             #section = $3

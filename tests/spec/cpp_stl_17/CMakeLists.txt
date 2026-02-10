@@ -2,6 +2,7 @@ cmake_minimum_required(VERSION 3.11)
 
 project(KS_TEST_CPP_STL)
 
+set(Boost_USE_STATIC_LIBS OFF)
 find_package(Boost COMPONENTS unit_test_framework REQUIRED)
 find_package(ZLIB REQUIRED)
 find_package(Iconv REQUIRED)

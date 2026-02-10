@@ -2,9 +2,9 @@
 
 . "$(dirname "$0")/config"
 
-PATH_SEP=':'
-if [ "${OS:-}" = "Windows_NT" ]; then
-  PATH_SEP=';'
+PATH_SEP="$(python -c 'import os; print(os.pathsep)' 2>/dev/null || true)"
+if [ -z "$PATH_SEP" ]; then
+  PATH_SEP=':'
 fi
 
 PYTHONPATH="$PYTHON_RUNTIME_DIR${PATH_SEP}compiled/python${PATH_SEP}spec/python${PATH_SEP}spec/python/extra" PYTHONDONTWRITEBYTECODE=1 PYTHONDEVMODE=1 python -m unittest discover -s spec/python
