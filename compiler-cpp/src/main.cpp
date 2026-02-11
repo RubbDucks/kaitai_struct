@@ -32,14 +32,12 @@ int main(int argc, char** argv) {
 
   std::vector<kscpp::ir::Spec> specs;
   if (!parse.options.from_ir.empty()) {
-    kscpp::ir::Spec spec;
-    const auto load_result =
-        kscpp::ir::LoadFromFileWithImports(parse.options.from_ir, parse.options.import_paths, &spec);
+    const auto load_result = kscpp::ir::LoadGraphFromFileWithImports(
+        parse.options.from_ir, parse.options.import_paths, &specs);
     if (!load_result.ok) {
       std::cerr << "Error: IR validation failed: " << load_result.error << std::endl;
       return 1;
     }
-    specs.push_back(std::move(spec));
   } else {
     kscpp::frontend::ParsedInputs parsed;
     auto parse_stage = kscpp::frontend::ParseKsyInputs(parse.options, &parsed);
@@ -102,7 +100,7 @@ int main(int argc, char** argv) {
   }
 
   if (!parse.options.from_ir.empty()) {
-    std::cout << "IR validation succeeded: " << specs.front().name << std::endl;
+    std::cout << "IR validation succeeded: " << specs.size() << " module(s)" << std::endl;
     return 0;
   }
 

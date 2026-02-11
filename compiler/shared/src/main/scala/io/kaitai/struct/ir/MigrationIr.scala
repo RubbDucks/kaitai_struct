@@ -17,6 +17,11 @@ object MigrationIr {
       out.append(s"import ${quote(imp)}\n")
     }
 
+    out.append(s"params ${spec.params.size}\n")
+    spec.params.foreach { p =>
+      out.append(s"param ${quote(p.id.humanReadable)} ${renderTypeRef(typeRefFromDataType(p.dataType))}\n")
+    }
+
     val types = spec.types.values.toList.map(t => TypeRow(t.name.lastOption.getOrElse(t.nameAsStr), TypeRef.user(t.nameAsStr)))
     out.append(s"types ${types.size}\n")
     types.foreach { t =>
@@ -25,7 +30,7 @@ object MigrationIr {
 
     out.append(s"attrs ${spec.seq.size}\n")
     spec.seq.foreach { attr =>
-      val (typ, endianOverride, sizeExpr, enumName, encoding, process, ifExpr, repeatKind, repeatExpr, switchOn, switchCases) = attrToIr(attr)
+      val (typ, endianOverride, sizeExpr, enumName, encoding, process, ifExpr, repeatKind, repeatExpr, switchOn, switchCases, userTypeArgs) = attrToIr(attr)
       val endStr = endianOverride.map(e => endianToIr(Some(e))).getOrElse("none")
       val sizeStr = sizeExpr.map(exprToIr).getOrElse("none")
       val ifStr = ifExpr.map(exprToIr).getOrElse("none")
@@ -34,7 +39,8 @@ object MigrationIr {
       val switchCasesStr = switchCases.map { case (onExpr, tpe) =>
         s" ${quote(onExpr.map(exprToIr).getOrElse("else"))} ${renderTypeRef(tpe)}"
       }.mkString("")
-      out.append(s"attr ${quote(attr.id.humanReadable)} ${renderTypeRef(typ)} $endStr ${quote(sizeStr)} ${quote(enumName.getOrElse("none"))} ${quote(encoding.getOrElse("none"))} ${quote(process.getOrElse("none"))} ${quote(ifStr)} $repeatKind ${quote(repeatExprStr)} ${quote(switchOnStr)} ${switchCases.size}$switchCasesStr\n")
+      val userArgsStr = userTypeArgs.map(a => s" ${quote(exprToIr(a))}").mkString("")
+      out.append(s"attr ${quote(attr.id.humanReadable)} ${renderTypeRef(typ)} $endStr ${quote(sizeStr)} ${quote(enumName.getOrElse("none"))} ${quote(encoding.getOrElse("none"))} ${quote(process.getOrElse("none"))} ${quote(ifStr)} $repeatKind ${quote(repeatExprStr)} ${quote(switchOnStr)} ${switchCases.size}$switchCasesStr ${userTypeArgs.size}$userArgsStr\n")
     }
 
     val enums = collectEnums(spec)
@@ -50,7 +56,11 @@ object MigrationIr {
     out.append(s"instances ${allInstances.size}\n")
     allInstances.foreach {
       case inst: ValueInstanceSpec =>
-        out.append(s"instance ${quote(inst.id.humanReadable)} ${quote(exprToIr(inst.value))}\n")
+        val instanceTypeSuffix = inst.dataTypeOpt
+          .flatMap(typeRefFromDataTypeOpt)
+          .map(t => s" ${renderTypeRef(t)}")
+          .getOrElse("")
+        out.append(s"instance ${quote(inst.id.humanReadable)} ${quote(exprToIr(inst.value))}$instanceTypeSuffix\n")
       case inst: ParseInstanceSpec =>
         val tpe = typeRefFromDataType(inst.dataType)
         val endian = inst.dataType match {
@@ -118,7 +128,7 @@ object MigrationIr {
     case None => "le"
   }
 
-  private def attrToIr(attr: AttrSpec): (TypeRef, Option[FixedEndian], Option[Ast.expr], Option[String], Option[String], Option[String], Option[Ast.expr], String, Option[Ast.expr], Option[Ast.expr], Seq[(Option[Ast.expr], TypeRef)]) = {
+  private def attrToIr(attr: AttrSpec): (TypeRef, Option[FixedEndian], Option[Ast.expr], Option[String], Option[String], Option[String], Option[Ast.expr], String, Option[Ast.expr], Option[Ast.expr], Seq[(Option[Ast.expr], TypeRef)], Seq[Ast.expr]) = {
     val t = attr.dataType
     val endianOverride = t match {
       case IntMultiType(_, _, e) => e
@@ -163,7 +173,11 @@ object MigrationIr {
       case RepeatEos => ("eos", None)
       case NoRepeat => ("none", None)
     }
-    (typeRefFromDataType(t), endianOverride, sizeExpr, enumName, encoding, process, attr.cond.ifExpr, repeatKind, repeatExpr, switchOn, switchCases)
+    val userTypeArgs = t match {
+      case ut: UserType => ut.args
+      case _ => Seq.empty
+    }
+    (typeRefFromDataType(t), endianOverride, sizeExpr, enumName, encoding, process, attr.cond.ifExpr, repeatKind, repeatExpr, switchOn, switchCases, userTypeArgs)
   }
 
 
@@ -181,6 +195,19 @@ object MigrationIr {
     }
   }
 
+  private def typeRefFromDataTypeOpt(t: DataType): Option[TypeRef] = t match {
+    case Int1Type(signed) => Some(TypeRef.primitive(if (signed) "s1" else "u1"))
+    case IntMultiType(signed, width, _) => Some(TypeRef.primitive((if (signed) "s" else "u") + width.width))
+    case FloatMultiType(width, _) => Some(TypeRef.primitive("f" + width.width))
+    case _: StrType => Some(TypeRef.primitive("str"))
+    case _: BytesType => Some(TypeRef.primitive("bytes"))
+    case ut: UserType => Some(TypeRef.user(ut.name.mkString("::")))
+    case KaitaiStructType => Some(TypeRef.user("kaitai::kstruct"))
+    case _: CalcKaitaiStructType => Some(TypeRef.user("kaitai::kstruct"))
+    case EnumType(_, basedOn) => typeRefFromDataTypeOpt(basedOn)
+    case _ => None
+  }
+
   private def typeRefFromDataType(t: DataType): TypeRef = t match {
     case Int1Type(signed) => TypeRef.primitive(if (signed) "s1" else "u1")
     case IntMultiType(signed, width, _) =>
@@ -189,6 +216,8 @@ object MigrationIr {
     case _: StrType => TypeRef.primitive("str")
     case _: BytesType => TypeRef.primitive("bytes")
     case ut: UserType => TypeRef.user(ut.name.mkString("::"))
+    case KaitaiStructType => TypeRef.user("kaitai::kstruct")
+    case _: CalcKaitaiStructType => TypeRef.user("kaitai::kstruct")
     case EnumType(_, basedOn) => typeRefFromDataType(basedOn)
     case _ => TypeRef.primitive("bytes")
   }
@@ -225,6 +254,8 @@ object MigrationIr {
     case Ast.expr.Bool(n) => s"(bool $n)"
     case Ast.expr.Name(id) => s"(name ${quote(id.name)})"
     case Ast.expr.InternalName(id) => s"(name ${quote(id.humanReadable)})"
+    case Ast.expr.Attribute(value, attr) => s"(un ${quote(s"__attr__:${attr.name}")} ${exprToIr(value)})"
+    case Ast.expr.CastToType(value, typeName) => s"(un ${quote(s"__cast__:${typeName.nameAsStr}")} ${exprToIr(value)})"
     case Ast.expr.UnaryOp(op, operand) => s"(un ${quote(unaryOp(op))} ${exprToIr(operand)})"
     case Ast.expr.BinOp(left, op, right) => s"(bin ${quote(binaryOp(op))} ${exprToIr(left)} ${exprToIr(right)})"
     case Ast.expr.Compare(left, op, right) => s"(bin ${quote(compareOp(op))} ${exprToIr(left)} ${exprToIr(right)})"

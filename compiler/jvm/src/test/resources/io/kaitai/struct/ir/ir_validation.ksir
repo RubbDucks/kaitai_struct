@@ -2,10 +2,11 @@ KSIR1
 name "ir_validation"
 default_endian be
 imports 0
+params 0
 types 0
 attrs 2
-attr "a" primitive "u1" none "none" "none" "none" "none" "none" none "none" "none" 0
-attr "b" primitive "u1" none "none" "none" "none" "none" "none" none "none" "none" 0
+attr "a" primitive "u1" none "none" "none" "none" "none" "none" none "none" "none" 0 0
+attr "b" primitive "u1" none "none" "none" "none" "none" "none" none "none" "none" 0 0
 enums 0
 instances 1
 instance "is_big" "(bin \">=\" (name \"a\") (int 4))"

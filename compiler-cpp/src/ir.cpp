@@ -438,6 +438,7 @@ ValidationResult Validate(const Spec& spec) {
   };
 
   auto is_known_user_type = [&](const std::string& type_name) {
+    if (type_name == "kaitai::kstruct" || type_name == "struct") return true;
     if (declared_types.find(type_name) != declared_types.end()) return true;
     for (const auto& t : declared_types) {
       if (ref_matches(t, type_name)) return true;
@@ -485,6 +486,18 @@ ValidationResult Validate(const Spec& spec) {
     }
   }
 
+  std::unordered_set<std::string> param_ids;
+  for (const auto& param : spec.params) {
+    if (param.id.empty()) {
+      return {false, "param.id is required"};
+    }
+    if (!param_ids.insert(param.id).second) {
+      return {false, "duplicate param declaration: " + param.id};
+    }
+    auto type_check = require_known_type(param.type, "param");
+    if (!type_check.ok) return type_check;
+  }
+
   for (const auto& attr : spec.attrs) {
     if (attr.id.empty()) {
       return {false, "attr.id is required"};
@@ -492,6 +505,9 @@ ValidationResult Validate(const Spec& spec) {
     auto type_check = require_known_type(attr.type, "attr");
     if (!type_check.ok)
       return type_check;
+    if (!attr.user_type_args.empty() && attr.type.kind != TypeRef::Kind::kUser) {
+      return {false, "attr.user_type_args is only allowed for user types"};
+    }
     if (attr.encoding.has_value() && attr.type.kind == TypeRef::Kind::kPrimitive && attr.type.primitive != PrimitiveType::kStr) {
       return {false, "attr.encoding is only allowed for primitive str type"};
     }
@@ -513,6 +529,8 @@ ValidationResult Validate(const Spec& spec) {
     }
     bool has_switch_else = false;
     for (const auto& c : attr.switch_cases) {
+      auto case_type_check = require_known_type(c.type, "attr.switch_case");
+      if (!case_type_check.ok) return case_type_check;
       if (!c.match_expr.has_value()) {
         if (has_switch_else) {
           return {false, "attr.switch_cases has duplicate switch else case"};
@@ -558,7 +576,12 @@ ValidationResult Validate(const Spec& spec) {
     if (inst.id.empty()) {
       return {false, "instance.id is required"};
     }
-    if (inst.kind == Instance::Kind::kParse) {
+    if (inst.kind == Instance::Kind::kValue) {
+      if (inst.has_explicit_type) {
+        auto type_check = require_known_type(inst.type, "instance");
+        if (!type_check.ok) return type_check;
+      }
+    } else {
       auto type_check = require_known_type(inst.type, "instance");
       if (!type_check.ok) return type_check;
       if (inst.encoding.has_value()) {
@@ -631,6 +654,11 @@ std::string Serialize(const Spec& spec) {
     out << "import " << std::quoted(imp) << "\n";
   }
 
+  out << "params " << spec.params.size() << "\n";
+  for (const auto& p : spec.params) {
+    out << "param " << std::quoted(p.id) << " " << SerializeTypeRef(p.type) << "\n";
+  }
+
   out << "types " << spec.types.size() << "\n";
   for (const auto& t : spec.types) {
     out << "type " << std::quoted(t.name) << " " << SerializeTypeRef(t.type) << "\n";
@@ -653,6 +681,20 @@ std::string Serialize(const Spec& spec) {
     out << " " << std::quoted(a.enum_name.value_or("none"));
     out << " " << std::quoted(a.encoding.value_or("none"));
     out << " " << std::quoted(a.process.has_value() ? ProcessToString(*a.process) : std::string("none"));
+    out << " " << std::quoted(a.if_expr.has_value() ? SerializeExpr(*a.if_expr) : std::string("none"));
+    out << " " << RepeatKindToString(a.repeat);
+    out << " " << std::quoted(a.repeat_expr.has_value() ? SerializeExpr(*a.repeat_expr) : std::string("none"));
+    out << " " << std::quoted(a.switch_on.has_value() ? SerializeExpr(*a.switch_on) : std::string("none"));
+    out << " " << a.switch_cases.size();
+    for (const auto& c : a.switch_cases) {
+      out << " " << std::quoted(c.match_expr.has_value() ? SerializeExpr(*c.match_expr)
+                                                          : std::string("else"))
+          << " " << SerializeTypeRef(c.type);
+    }
+    out << " " << a.user_type_args.size();
+    for (const auto& arg : a.user_type_args) {
+      out << " " << std::quoted(SerializeExpr(arg));
+    }
     out << "\n";
   }
 
@@ -667,8 +709,11 @@ std::string Serialize(const Spec& spec) {
   out << "instances " << spec.instances.size() << "\n";
   for (const auto& i : spec.instances) {
     if (i.kind == Instance::Kind::kValue) {
-      out << "instance " << std::quoted(i.id) << " " << std::quoted(SerializeExpr(i.value_expr))
-          << "\n";
+      out << "instance " << std::quoted(i.id) << " " << std::quoted(SerializeExpr(i.value_expr));
+      if (i.has_explicit_type) {
+        out << " " << SerializeTypeRef(i.type);
+      }
+      out << "\n";
     } else {
       out << "instance_parse " << std::quoted(i.id) << " " << SerializeTypeRef(i.type) << " ";
       if (i.endian_override.has_value()) {
@@ -747,14 +792,15 @@ ValidationResult Deserialize(const std::string& encoded, Spec* out, bool validat
 
   size_t count = 0;
   if (!std::getline(in, line))
-    return {false, "missing section header: imports/types"};
+    return {false, "missing section header: imports/params/types"};
   out->imports.clear();
+  out->params.clear();
   {
     std::istringstream row(line);
     std::string key;
     size_t section_count = 0;
     if (!(row >> key >> section_count)) {
-      return {false, "invalid section header: imports/types"};
+      return {false, "invalid section header: imports/params/types"};
     }
     if (key == "imports") {
       count = section_count;
@@ -769,13 +815,59 @@ ValidationResult Deserialize(const std::string& encoded, Spec* out, bool validat
         }
         out->imports.push_back(import_name);
       }
+      if (!std::getline(in, line))
+        return {false, "missing section header: params/types"};
+      std::istringstream next_row(line);
+      std::string next_key;
+      size_t next_count = 0;
+      if (!(next_row >> next_key >> next_count)) {
+        return {false, "invalid section header: params/types"};
+      }
+      if (next_key == "params") {
+        count = next_count;
+        for (size_t i = 0; i < count; i++) {
+          if (!std::getline(in, line))
+            return {false, "truncated param section"};
+          std::istringstream param_row(line);
+          std::string param_key;
+          Param param;
+          if (!(param_row >> param_key >> std::quoted(param.id)) || param_key != "param") {
+            return {false, "invalid param row"};
+          }
+          auto p = ParseTypeRef(&param_row, &param.type);
+          if (!p.ok) return p;
+          out->params.push_back(param);
+        }
+        auto imports_res = parse_count("types", &count);
+        if (!imports_res.ok)
+          return imports_res;
+      } else if (next_key == "types") {
+        count = next_count;
+      } else {
+        return {false, "invalid section header: params/types"};
+      }
+    } else if (key == "params") {
+      count = section_count;
+      for (size_t i = 0; i < count; i++) {
+        if (!std::getline(in, line))
+          return {false, "truncated param section"};
+        std::istringstream param_row(line);
+        std::string param_key;
+        Param param;
+        if (!(param_row >> param_key >> std::quoted(param.id)) || param_key != "param") {
+          return {false, "invalid param row"};
+        }
+        auto p = ParseTypeRef(&param_row, &param.type);
+        if (!p.ok) return p;
+        out->params.push_back(param);
+      }
       auto imports_res = parse_count("types", &count);
       if (!imports_res.ok)
         return imports_res;
     } else if (key == "types") {
       count = section_count;
     } else {
-      return {false, "invalid section header: imports/types"};
+      return {false, "invalid section header: imports/params/types"};
     }
   }
 
@@ -898,6 +990,23 @@ ValidationResult Deserialize(const std::string& encoded, Spec* out, bool validat
         }
         attr.switch_cases.push_back(cs);
       }
+
+      size_t user_arg_count = 0;
+      if (switch_reader >> user_arg_count) {
+        for (size_t ua = 0; ua < user_arg_count; ua++) {
+          std::string arg_expr_text;
+          if (!(switch_reader >> std::quoted(arg_expr_text))) {
+            return {false, "invalid user type arg row"};
+          }
+          ExprParser arg_parser{arg_expr_text};
+          Expr parsed_arg;
+          auto ap = arg_parser.Parse(&parsed_arg);
+          if (!ap.ok) {
+            return ap;
+          }
+          attr.user_type_args.push_back(parsed_arg);
+        }
+      }
     }
     if (endian_text != "none") {
       Endian parsed;
@@ -1013,6 +1122,12 @@ ValidationResult Deserialize(const std::string& encoded, Spec* out, bool validat
       auto pe = parser.Parse(&inst.value_expr);
       if (!pe.ok)
         return pe;
+      row >> std::ws;
+      if (!row.eof()) {
+        auto tp = ParseTypeRef(&row, &inst.type);
+        if (!tp.ok) return tp;
+        inst.has_explicit_type = true;
+      }
     } else if (key == "instance_parse") {
       inst.kind = Instance::Kind::kParse;
       auto p = ParseTypeRef(&row, &inst.type);
@@ -1093,6 +1208,82 @@ ValidationResult LoadFromFile(const std::string& path, Spec* out) {
   std::ostringstream buffer;
   buffer << in.rdbuf();
   return Deserialize(buffer.str(), out, true);
+}
+
+ValidationResult LoadGraphFromFileWithImports(const std::string& path,
+                                              const std::vector<std::string>& import_paths,
+                                              std::vector<Spec>* out_specs) {
+  std::error_code ec;
+  const std::filesystem::path root = std::filesystem::weakly_canonical(path, ec);
+  if (ec) {
+    return {false, "failed to canonicalize IR file path: " + path};
+  }
+
+  std::unordered_map<std::string, Spec> loaded;
+  std::unordered_set<std::string> visiting;
+  std::vector<std::string> stack;
+  std::vector<std::string> order;
+
+  std::function<ValidationResult(const std::filesystem::path&)> dfs =
+      [&](const std::filesystem::path& file_path) -> ValidationResult {
+    const std::string file_key = file_path.string();
+    if (loaded.find(file_key) != loaded.end()) {
+      return {true, ""};
+    }
+    if (!visiting.insert(file_key).second) {
+      std::string chain;
+      for (const auto& n : stack) {
+        if (!chain.empty()) chain += " -> ";
+        chain += n;
+      }
+      if (!chain.empty()) chain += " -> ";
+      chain += file_key;
+      return {false, "import cycle detected: " + chain};
+    }
+    stack.push_back(file_key);
+
+    Spec current;
+    auto load = LoadFromFile(file_key, &current);
+    if (!load.ok) {
+      stack.pop_back();
+      visiting.erase(file_key);
+      return load;
+    }
+
+    for (const auto& imp : current.imports) {
+      std::filesystem::path resolved;
+      auto resolve = ResolveImportPath(imp, file_path, import_paths, &resolved);
+      if (!resolve.ok) {
+        stack.pop_back();
+        visiting.erase(file_key);
+        return resolve;
+      }
+      auto child = dfs(resolved);
+      if (!child.ok) {
+        stack.pop_back();
+        visiting.erase(file_key);
+        return child;
+      }
+    }
+
+    loaded[file_key] = current;
+    order.push_back(file_key);
+    stack.pop_back();
+    visiting.erase(file_key);
+    return {true, ""};
+  };
+
+  auto walk = dfs(root);
+  if (!walk.ok) {
+    return walk;
+  }
+
+  out_specs->clear();
+  out_specs->reserve(order.size());
+  for (const auto& file_key : order) {
+    out_specs->push_back(loaded[file_key]);
+  }
+  return {true, ""};
 }
 
 ValidationResult LoadFromFileWithImports(const std::string& path,

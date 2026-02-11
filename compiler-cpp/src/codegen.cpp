@@ -14,6 +14,15 @@ namespace kscpp::codegen {
 namespace {
 
 bool EnumNameMatches(const std::string& declared, const std::string& ref);
+std::string CppUserTypeName(const std::string& type_name);
+bool IsUnresolvedUserType(const ir::TypeRef& type_ref,
+                          const std::map<std::string, ir::TypeRef>& user_types);
+
+bool ParseSpecialUnary(const std::string& op, const std::string& prefix, std::string* payload) {
+  if (op.rfind(prefix, 0) != 0) return false;
+  *payload = op.substr(prefix.size());
+  return !payload->empty();
+}
 
 
 std::optional<ir::PrimitiveType> ResolvePrimitiveType(
@@ -48,6 +57,29 @@ std::string NormalizeOp(const std::string& op) {
   if (op == "not")
     return "!";
   return op;
+}
+
+std::string ImportStem(const std::string& import_name) {
+  std::string value = import_name;
+  const size_t slash = value.find_last_of("/\\");
+  if (slash != std::string::npos) {
+    value = value.substr(slash + 1);
+  }
+  const size_t dot = value.find_last_of('.');
+  if (dot != std::string::npos) {
+    value = value.substr(0, dot);
+  }
+  return value;
+}
+
+bool UserTypeMatchesImport(const std::string& type_name, const std::string& import_stem) {
+  if (type_name == import_stem) return true;
+  if (type_name.size() > import_stem.size() &&
+      type_name.compare(type_name.size() - import_stem.size(), import_stem.size(), import_stem) == 0 &&
+      type_name[type_name.size() - import_stem.size() - 1] == ':') {
+    return true;
+  }
+  return false;
 }
 
 std::string ToUpperCamelIdentifier(const std::string& value) {
@@ -136,7 +168,17 @@ std::string RenderExpr(const ir::Expr& expr, const std::set<std::string>& attrs,
     if (attrs.find(expr.text) != attrs.end() || instances.find(expr.text) != instances.end()) return expr.text + "()";
     return expr.text;
   case ir::Expr::Kind::kUnary:
+  {
+    std::string payload;
+    if (ParseSpecialUnary(expr.text, "__cast__:", &payload)) {
+      return "static_cast<" + CppUserTypeName(payload) + "*>(" +
+             RenderExpr(*expr.lhs, attrs, instances, 90, repeat_item_name) + ")";
+    }
+    if (ParseSpecialUnary(expr.text, "__attr__:", &payload)) {
+      return RenderExpr(*expr.lhs, attrs, instances, 90, repeat_item_name) + "->" + payload + "()";
+    }
     return "(" + NormalizeOp(expr.text) + RenderExpr(*expr.lhs, attrs, instances, 90, repeat_item_name) + ")";
+  }
   case ir::Expr::Kind::kBinary: {
     const int prec = ExprPrecedence(expr);
     const std::string op = NormalizeOp(expr.text);
@@ -278,6 +320,7 @@ Result ValidateSupportedSubset(const ir::Spec& spec) {
   }
 
   std::set<std::string> known_names;
+  for (const auto& param : spec.params) known_names.insert(param.id);
   for (const auto& attr : spec.attrs) known_names.insert(attr.id);
 
   std::function<Result(const ir::Expr&)> validate_expr = [&](const ir::Expr& expr) -> Result {
@@ -289,7 +332,10 @@ Result ValidateSupportedSubset(const ir::Spec& spec) {
       if (expr.text != "_" && known_names.find(expr.text) == known_names.end()) return {false, "not yet supported: expression name reference outside attrs/instances: " + expr.text};
       return {true, ""};
     case ir::Expr::Kind::kUnary:
-      if (expr.text != "-" && expr.text != "!" && expr.text != "not" && expr.text != "~") return {false, "not yet supported: unary operator \"" + expr.text + "\""};
+      if (expr.text != "-" && expr.text != "!" && expr.text != "not" && expr.text != "~" &&
+          expr.text.rfind("__cast__:", 0) != 0 && expr.text.rfind("__attr__:", 0) != 0) {
+        return {false, "not yet supported: unary operator \"" + expr.text + "\""};
+      }
       return validate_expr(*expr.lhs);
     case ir::Expr::Kind::kBinary: {
       static const std::set<std::string> supported_ops = {
@@ -307,8 +353,13 @@ Result ValidateSupportedSubset(const ir::Spec& spec) {
       if (!result.ok) return result;
     } else {
       auto resolved_type = resolve_primitive(inst.type);
-      if (!resolved_type.has_value()) {
+      const bool unresolved_user_type =
+          !resolved_type.has_value() && inst.type.kind == ir::TypeRef::Kind::kUser;
+      if (!resolved_type.has_value() && !unresolved_user_type) {
         return {false, "not yet supported: parse instance type must resolve to primitive type"};
+      }
+      if (unresolved_user_type && inst.encoding.has_value()) {
+        return {false, "not yet supported: encoding on user-type parse instances"};
       }
       if (inst.pos_expr.has_value()) {
         auto result = validate_expr(*inst.pos_expr);
@@ -350,6 +401,10 @@ Result ValidateSupportedSubset(const ir::Spec& spec) {
     for (const auto& c : attr.switch_cases) {
       if (!c.match_expr.has_value()) continue;
       auto result = validate_expr(*c.match_expr);
+      if (!result.ok) return result;
+    }
+    for (const auto& arg : attr.user_type_args) {
+      auto result = validate_expr(arg);
       if (!result.ok) return result;
     }
   }
@@ -415,6 +470,10 @@ std::optional<ir::PrimitiveType> EffectiveAttrPrimitive(const ir::Attr& attr,
 
 std::string CppAttrType(const ir::Attr& attr, const std::map<std::string, ir::TypeRef>& user_types) {
   if (attr.enum_name.has_value()) return EnumCppTypeName(*attr.enum_name);
+  if (attr.type.kind == ir::TypeRef::Kind::kUser &&
+      !ResolvePrimitiveType(attr.type, user_types).has_value()) {
+    return CppUserTypeName(attr.type.user_type) + "*";
+  }
   const auto primitive = EffectiveAttrPrimitive(attr, user_types);
   return CppFieldType(primitive.value_or(ir::PrimitiveType::kU1));
 }
@@ -429,8 +488,27 @@ std::string CppReadPrimitiveExpr(ir::PrimitiveType primitive, std::optional<ir::
 std::string ReadExpr(const ir::Attr& attr, ir::Endian default_endian,
                      const std::set<std::string>& attrs, const std::set<std::string>& instances,
                      const std::map<std::string, ir::TypeRef>& user_types) {
-  const auto primitive = ResolvePrimitiveType(attr.type, user_types).value_or(ir::PrimitiveType::kU1);
-  if (primitive == ir::PrimitiveType::kBytes) {
+  const auto primitive = ResolvePrimitiveType(attr.type, user_types);
+  if (!primitive.has_value() && IsUnresolvedUserType(attr.type, user_types)) {
+    const std::string type_name = CppUserTypeName(attr.type.user_type);
+    std::ostringstream ctor_args;
+    const bool local_alias = user_types.find(attr.type.user_type) != user_types.end();
+    if (local_alias) {
+      ctor_args << "m__io, this, m__root";
+    } else {
+      bool first = true;
+      for (const auto& arg : attr.user_type_args) {
+        if (!first) ctor_args << ", ";
+        ctor_args << RenderExpr(arg, attrs, instances, -1);
+        first = false;
+      }
+      if (!first) ctor_args << ", ";
+      ctor_args << "m__io";
+    }
+    return "std::unique_ptr<" + type_name + ">(new " + type_name + "(" + ctor_args.str() + "))";
+  }
+  const auto primitive_kind = primitive.value_or(ir::PrimitiveType::kU1);
+  if (primitive_kind == ir::PrimitiveType::kBytes) {
     std::string read = attr.size_expr.has_value() ?
       ("m__io->read_bytes(" + RenderExpr(*attr.size_expr, attrs, instances, -1) + ")") :
       "m__io->read_bytes_full()";
@@ -439,12 +517,12 @@ std::string ReadExpr(const ir::Attr& attr, ir::Endian default_endian,
     }
     return read;
   }
-  if (primitive == ir::PrimitiveType::kStr) {
+  if (primitive_kind == ir::PrimitiveType::kStr) {
     if (!attr.size_expr.has_value()) return "std::string()";
     const std::string enc = attr.encoding.value_or("UTF-8");
     return "kaitai::kstream::bytes_to_str(m__io->read_bytes(" + RenderExpr(*attr.size_expr, attrs, instances, -1) + "), \"" + enc + "\")";
   }
-  std::string base = CppReadPrimitiveExpr(primitive, attr.endian_override, default_endian);
+  std::string base = CppReadPrimitiveExpr(primitive_kind, attr.endian_override, default_endian);
   if (attr.enum_name.has_value()) return "static_cast<" + EnumCppTypeName(*attr.enum_name) + ">(" + base + ")";
   return base;
 }
@@ -484,12 +562,30 @@ bool CanRenderNativeSwitch(const ir::Attr& attr) {
 }
 
 std::string CppStorageType(const ir::Attr& attr, const std::map<std::string, ir::TypeRef>& user_types) {
+  const bool unresolved_user =
+      IsUnresolvedUserType(attr.type, user_types) && !attr.switch_on.has_value();
+  if (unresolved_user) {
+    const std::string type_name = CppUserTypeName(attr.type.user_type);
+    if (attr.repeat != ir::Attr::RepeatKind::kNone) {
+      return "std::unique_ptr<std::vector<std::unique_ptr<" + type_name + ">>>";
+    }
+    return "std::unique_ptr<" + type_name + ">";
+  }
   std::string base = attr.switch_on.has_value() ? SwitchCaseType(attr, user_types) : CppAttrType(attr, user_types);
   if (attr.repeat != ir::Attr::RepeatKind::kNone) return "std::unique_ptr<std::vector<" + base + ">>";
   return base;
 }
 
 std::string CppAccessorType(const ir::Attr& attr, const std::map<std::string, ir::TypeRef>& user_types) {
+  const bool unresolved_user =
+      IsUnresolvedUserType(attr.type, user_types) && !attr.switch_on.has_value();
+  if (unresolved_user) {
+    const std::string type_name = CppUserTypeName(attr.type.user_type);
+    if (attr.repeat != ir::Attr::RepeatKind::kNone) {
+      return "std::vector<std::unique_ptr<" + type_name + ">>*";
+    }
+    return type_name + "*";
+  }
   if (attr.repeat != ir::Attr::RepeatKind::kNone) {
     const std::string base = attr.switch_on.has_value() ? SwitchCaseType(attr, user_types) : CppAttrType(attr, user_types);
     return "std::vector<" + base + ">*";
@@ -532,6 +628,7 @@ std::string ReadMethod(ir::PrimitiveType primitive, ir::Endian endian) {
 }
 
 std::string CppUserTypeName(const std::string& type_name) {
+  if (type_name == "kaitai::kstruct" || type_name == "struct") return "kaitai::kstruct";
   if (type_name.empty()) return "kaitai::kstruct";
   std::vector<std::string> parts;
   size_t start = 0;
@@ -565,10 +662,19 @@ std::string CppTypeForTypeRef(const ir::TypeRef& type_ref,
   return "uint8_t";
 }
 
+bool IsUnresolvedUserType(const ir::TypeRef& type_ref,
+                          const std::map<std::string, ir::TypeRef>& user_types) {
+  return type_ref.kind == ir::TypeRef::Kind::kUser &&
+         !ResolvePrimitiveType(type_ref, user_types).has_value();
+}
+
 std::string CppInstanceType(const ir::Instance& inst,
                             const std::map<std::string, ExprType>& instance_types,
                             const std::map<std::string, ir::TypeRef>& user_types) {
   if (inst.kind == ir::Instance::Kind::kParse) {
+    return CppTypeForTypeRef(inst.type, user_types);
+  }
+  if (inst.has_explicit_type) {
     return CppTypeForTypeRef(inst.type, user_types);
   }
   auto it = instance_types.find(inst.id);
@@ -580,7 +686,15 @@ std::string CppReadParseInstanceExpr(const ir::Instance& inst, ir::Endian defaul
                                      const std::set<std::string>& attrs,
                                      const std::set<std::string>& instances,
                                      const std::map<std::string, ir::TypeRef>& user_types) {
-  const auto primitive = ResolvePrimitiveType(inst.type, user_types).value_or(ir::PrimitiveType::kU1);
+  const auto resolved = ResolvePrimitiveType(inst.type, user_types);
+  if (!resolved.has_value() && inst.type.kind == ir::TypeRef::Kind::kUser) {
+    const bool local_alias = user_types.find(inst.type.user_type) != user_types.end();
+    if (local_alias) {
+      return "new " + CppUserTypeName(inst.type.user_type) + "(m__io, this, m__root)";
+    }
+    return "new " + CppUserTypeName(inst.type.user_type) + "(m__io)";
+  }
+  const auto primitive = resolved.value_or(ir::PrimitiveType::kU1);
   if (primitive == ir::PrimitiveType::kBytes) {
     if (inst.size_expr.has_value()) {
       return "m__io->read_bytes(" + RenderExpr(*inst.size_expr, attrs, instances, -1) + ")";
@@ -612,6 +726,36 @@ bool NeedsStringInclude(const ir::Spec& spec, const std::map<std::string, ir::Ty
 std::string RenderHeader(const ir::Spec& spec) {
   const auto instance_types = ComputeInstanceTypes(spec);
   const auto user_types = BuildUserTypeMap(spec);
+  std::set<std::string> required_import_headers;
+  const auto maybe_add_import = [&](const ir::TypeRef& type_ref) {
+    if (!IsUnresolvedUserType(type_ref, user_types)) return;
+    if (type_ref.user_type == "kaitai::kstruct" || type_ref.user_type == "struct") return;
+    for (const auto& imp : spec.imports) {
+      const std::string stem = ImportStem(imp);
+      if (UserTypeMatchesImport(type_ref.user_type, stem)) {
+        required_import_headers.insert(stem);
+      }
+    }
+  };
+  for (const auto& p : spec.params) maybe_add_import(p.type);
+  for (const auto& a : spec.attrs) {
+    maybe_add_import(a.type);
+    for (const auto& c : a.switch_cases) maybe_add_import(c.type);
+  }
+  for (const auto& i : spec.instances) {
+    if (i.kind == ir::Instance::Kind::kParse || i.has_explicit_type) {
+      maybe_add_import(i.type);
+    }
+  }
+  const auto ctor_param_decl = [&]() {
+    std::ostringstream args;
+    for (const auto& p : spec.params) {
+      args << CppTypeForTypeRef(p.type, user_types) << " p_" << p.id << ", ";
+    }
+    args << "kaitai::kstream* p__io, kaitai::kstruct* p__parent = nullptr, " << spec.name
+         << "_t* p__root = nullptr";
+    return args.str();
+  };
   std::ostringstream out;
   out << "#pragma once\n\n";
   out << "// This is a generated file! Please edit source .ksy file and use kaitai-struct-compiler to rebuild\n\n";
@@ -622,6 +766,13 @@ std::string RenderHeader(const ir::Spec& spec) {
   out << "#include <memory>\n";
   if (NeedsStringInclude(spec, user_types)) out << "#include <string>\n";
   if (NeedsVectorInclude(spec)) out << "#include <vector>\n";
+  std::set<std::string> emitted_imports;
+  for (const auto& imp : spec.imports) {
+    const std::string stem = ImportStem(imp);
+    if (required_import_headers.find(stem) == required_import_headers.end()) continue;
+    if (!emitted_imports.insert(stem).second) continue;
+    out << "#include \"" << stem << ".h\"\n";
+  }
   out << "\n";
   out << "#if KAITAI_STRUCT_VERSION < 11000L\n";
   out << "#error \"Incompatible Kaitai Struct C++/STL API: version 0.11 or later is required\"\n";
@@ -637,7 +788,7 @@ std::string RenderHeader(const ir::Spec& spec) {
   }
   out << "class " << spec.name << "_t : public kaitai::kstruct {\n\n";
   out << "public:\n\n";
-  out << "    " << spec.name << "_t(kaitai::kstream* p__io, kaitai::kstruct* p__parent = nullptr, " << spec.name << "_t* p__root = nullptr);\n\n";
+  out << "    " << spec.name << "_t(" << ctor_param_decl() << ");\n\n";
   out << "private:\n";
   out << "    void _read();\n";
   out << "    void _clean_up();\n\n";
@@ -648,8 +799,15 @@ std::string RenderHeader(const ir::Spec& spec) {
   for (const auto& inst : spec.instances) {
     out << "    " << CppInstanceType(inst, instance_types, user_types) << " " << inst.id << "();\n";
   }
+  for (const auto& p : spec.params) {
+    out << "    " << CppTypeForTypeRef(p.type, user_types) << " " << p.id << "() const { return m_"
+        << p.id << "; }\n";
+  }
   for (const auto& attr : spec.attrs) {
+    const bool unresolved_user = IsUnresolvedUserType(attr.type, user_types) && !attr.switch_on.has_value();
     if (attr.repeat != ir::Attr::RepeatKind::kNone) {
+      out << "    " << CppAccessorType(attr, user_types) << " " << attr.id << "() const { return m_" << attr.id << ".get(); }\n";
+    } else if (unresolved_user) {
       out << "    " << CppAccessorType(attr, user_types) << " " << attr.id << "() const { return m_" << attr.id << ".get(); }\n";
     } else {
       out << "    " << CppAccessorType(attr, user_types) << " " << attr.id << "() const { return m_" << attr.id << "; }\n";
@@ -671,6 +829,9 @@ std::string RenderHeader(const ir::Spec& spec) {
   for (const auto& inst : spec.instances) {
     out << "    bool f_" << inst.id << ";\n";
     out << "    " << CppInstanceType(inst, instance_types, user_types) << " m_" << inst.id << ";\n";
+  }
+  for (const auto& p : spec.params) {
+    out << "    " << CppTypeForTypeRef(p.type, user_types) << " m_" << p.id << ";\n";
   }
   for (const auto& attr : spec.attrs) {
     out << "    " << CppStorageType(attr, user_types) << " m_" << attr.id << ";\n";
@@ -703,8 +864,17 @@ std::string ValidationValueType(const std::string& target, const ir::Spec& spec,
 std::string RenderSource(const ir::Spec& spec) {
   const auto instance_types = ComputeInstanceTypes(spec);
   const auto user_types = BuildUserTypeMap(spec);
+  const auto ctor_param_decl = [&]() {
+    std::ostringstream args;
+    for (const auto& p : spec.params) {
+      args << CppTypeForTypeRef(p.type, user_types) << " p_" << p.id << ", ";
+    }
+    args << "kaitai::kstream* p__io, kaitai::kstruct* p__parent, " << spec.name << "_t* p__root";
+    return args.str();
+  };
   std::set<std::string> attr_names;
   for (const auto& attr : spec.attrs) attr_names.insert(attr.id);
+  for (const auto& p : spec.params) attr_names.insert(p.id);
 
   std::ostringstream out;
   out << "// This is a generated file! Please edit source .ksy file and use kaitai-struct-compiler to rebuild\n\n";
@@ -713,12 +883,16 @@ std::string RenderSource(const ir::Spec& spec) {
     out << "#include \"kaitai/exceptions.h\"\n";
   }
   out << "\n";
-  out << spec.name << "_t::" << spec.name << "_t(kaitai::kstream* p__io, kaitai::kstruct* p__parent, " << spec.name << "_t* p__root) : kaitai::kstruct(p__io) {\n";
+  out << spec.name << "_t::" << spec.name << "_t(" << ctor_param_decl() << ") : kaitai::kstruct(p__io) {\n";
   out << "    m__parent = p__parent;\n";
   out << "    m__root = p__root ? p__root : this;\n";
+  for (const auto& p : spec.params) {
+    out << "    m_" << p.id << " = p_" << p.id << ";\n";
+  }
   for (const auto& inst : spec.instances) out << "    f_" << inst.id << " = false;\n";
   for (const auto& attr : spec.attrs) {
-    if (attr.repeat != ir::Attr::RepeatKind::kNone) {
+    if (attr.repeat != ir::Attr::RepeatKind::kNone ||
+        (IsUnresolvedUserType(attr.type, user_types) && !attr.switch_on.has_value())) {
       out << "    m_" << attr.id << " = nullptr;\n";
     }
   }
@@ -808,7 +982,7 @@ std::string RenderSource(const ir::Spec& spec) {
       } else {
         out << nested_indent << "auto repeat_item = " << ReadExpr(attr, spec.default_endian, attr_names, {}, user_types) << ";\n";
       }
-      out << nested_indent << "m_" << attr.id << "->push_back(repeat_item);\n";
+      out << nested_indent << "m_" << attr.id << "->push_back(std::move(repeat_item));\n";
       out << indent << "} while (!(" << RenderExpr(*attr.repeat_expr, attr_names, {}, -1, "repeat_item") << "));\n";
     }
     if (attr.if_expr.has_value()) out << "    }\n";
@@ -859,6 +1033,7 @@ std::string RenderSource(const ir::Spec& spec) {
 
   out << "void " << spec.name << "_t::_clean_up() {\n";
   for (const auto& inst : spec.instances) {
+    if (inst.kind != ir::Instance::Kind::kParse) continue;
     out << "    if (f_" << inst.id << ") {\n";
     out << "    }\n";
   }

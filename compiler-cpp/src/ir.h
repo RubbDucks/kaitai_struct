@@ -101,6 +101,12 @@ struct Attr {
   std::optional<Expr> repeat_expr;
   std::optional<Expr> switch_on;
   std::vector<SwitchCase> switch_cases;
+  std::vector<Expr> user_type_args;
+};
+
+struct Param {
+  std::string id;
+  TypeRef type;
 };
 
 struct EnumValue {
@@ -122,6 +128,7 @@ struct Instance {
   std::string id;
   Kind kind = Kind::kValue;
   Expr value_expr;
+  bool has_explicit_type = false;
   TypeRef type;
   std::optional<Endian> endian_override;
   std::optional<Expr> size_expr;
@@ -139,6 +146,7 @@ struct Spec {
   std::string name;
   Endian default_endian = Endian::kLe;
   std::vector<std::string> imports;
+  std::vector<Param> params;
   std::vector<TypeDef> types;
   std::vector<Attr> attrs;
   std::vector<EnumDef> enums;
@@ -158,6 +166,9 @@ ValidationResult LoadFromFile(const std::string& path, Spec* out);
 ValidationResult LoadFromFileWithImports(const std::string& path,
                                          const std::vector<std::string>& import_paths,
                                          Spec* out);
+ValidationResult LoadGraphFromFileWithImports(const std::string& path,
+                                              const std::vector<std::string>& import_paths,
+                                              std::vector<Spec>* out_specs);
 
 } // namespace kscpp::ir
 
