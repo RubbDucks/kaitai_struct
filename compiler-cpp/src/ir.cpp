@@ -309,6 +309,11 @@ ValidationResult ParseTypeRef(std::istringstream* in, TypeRef* out) {
   return {false, "unknown type reference kind: " + kind};
 }
 
+bool IsEmbeddedScopeMarker(const std::string& text) {
+  static const std::string kPrefix = "__scope_b64__:";
+  return text.rfind(kPrefix, 0) == 0;
+}
+
 std::string NormalizeImportPath(const std::string& import_name) {
   std::string out = import_name;
   for (char& c : out) {
@@ -418,7 +423,9 @@ ValidationResult Validate(const Spec& spec) {
       if (t.type.user_type.empty()) {
         return {false, "user type reference requires user_type"};
       }
-      type_alias_edges[t.name] = t.type.user_type;
+      if (!IsEmbeddedScopeMarker(t.type.user_type)) {
+        type_alias_edges[t.name] = t.type.user_type;
+      }
     }
   }
 

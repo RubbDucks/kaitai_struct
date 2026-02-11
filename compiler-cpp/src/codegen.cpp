@@ -1,5 +1,7 @@
 #include "codegen.h"
 
+#include <array>
+#include <algorithm>
 #include <cctype>
 #include <filesystem>
 #include <fstream>
@@ -22,6 +24,83 @@ bool ParseSpecialUnary(const std::string& op, const std::string& prefix, std::st
   if (op.rfind(prefix, 0) != 0) return false;
   *payload = op.substr(prefix.size());
   return !payload->empty();
+}
+
+bool DecodeBase64(const std::string& input, std::string* output) {
+  static const std::string kAlphabet =
+      "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+  std::array<int, 256> table{};
+  table.fill(-1);
+  for (size_t i = 0; i < kAlphabet.size(); i++) {
+    table[static_cast<unsigned char>(kAlphabet[i])] = static_cast<int>(i);
+  }
+
+  int val = 0;
+  int valb = -8;
+  std::string out;
+  out.reserve((input.size() * 3) / 4);
+  for (unsigned char c : input) {
+    if (std::isspace(c) != 0) continue;
+    if (c == '=') break;
+    const int decoded = table[c];
+    if (decoded < 0) return false;
+    val = (val << 6) + decoded;
+    valb += 6;
+    if (valb >= 0) {
+      out.push_back(static_cast<char>((val >> valb) & 0xFF));
+      valb -= 8;
+    }
+  }
+  *output = std::move(out);
+  return true;
+}
+
+bool IsEmbeddedScopeRef(const ir::TypeRef& ref, std::string* encoded_payload) {
+  if (ref.kind != ir::TypeRef::Kind::kUser) return false;
+  static const std::string kPrefix = "__scope_b64__:";
+  if (ref.user_type.rfind(kPrefix, 0) != 0) return false;
+  *encoded_payload = ref.user_type.substr(kPrefix.size());
+  return !encoded_payload->empty();
+}
+
+std::map<std::string, ir::Spec> DecodeEmbeddedScopes(const ir::Spec& spec) {
+  std::map<std::string, ir::Spec> scopes;
+  for (const auto& t : spec.types) {
+    std::string encoded;
+    if (!IsEmbeddedScopeRef(t.type, &encoded)) continue;
+    std::string decoded;
+    if (!DecodeBase64(encoded, &decoded)) continue;
+    ir::Spec scope_spec;
+    auto parse = ir::Deserialize(decoded, &scope_spec, false);
+    if (!parse.ok) continue;
+    scopes[t.name] = scope_spec;
+  }
+  return scopes;
+}
+
+std::vector<std::string> SplitScopePath(const std::string& name) {
+  if (name.empty()) return {};
+  std::vector<std::string> out;
+  size_t start = 0;
+  while (start < name.size()) {
+    size_t pos = name.find("::", start);
+    if (pos == std::string::npos) {
+      out.push_back(name.substr(start));
+      break;
+    }
+    out.push_back(name.substr(start, pos - start));
+    start = pos + 2;
+  }
+  return out;
+}
+
+std::string JoinScopePath(const std::vector<std::string>& parts, size_t upto) {
+  std::ostringstream out;
+  for (size_t i = 0; i < upto; i++) {
+    if (i > 0) out << "::";
+    out << parts[i];
+  }
+  return out.str();
 }
 
 
@@ -456,8 +535,39 @@ std::string SwitchCaseType(const ir::Attr& attr, const std::map<std::string, ir:
     auto primitive = ResolvePrimitiveType(attr.type, user_types);
     return CppFieldType(primitive.value_or(ir::PrimitiveType::kU1));
   }
-  const auto primitive = ResolvePrimitiveType(attr.switch_cases.front().type, user_types);
-  return CppFieldType(primitive.value_or(ir::PrimitiveType::kU1));
+  auto rank = [](ir::PrimitiveType t) -> int {
+    switch (t) {
+    case ir::PrimitiveType::kU1:
+    case ir::PrimitiveType::kS1:
+      return 1;
+    case ir::PrimitiveType::kU2:
+    case ir::PrimitiveType::kS2:
+      return 2;
+    case ir::PrimitiveType::kU4:
+    case ir::PrimitiveType::kS4:
+    case ir::PrimitiveType::kF4:
+      return 4;
+    case ir::PrimitiveType::kU8:
+    case ir::PrimitiveType::kS8:
+    case ir::PrimitiveType::kF8:
+      return 8;
+    case ir::PrimitiveType::kBytes:
+    case ir::PrimitiveType::kStr:
+      return 100;
+    }
+    return 1;
+  };
+  ir::PrimitiveType selected = ir::PrimitiveType::kU1;
+  int selected_rank = -1;
+  for (const auto& c : attr.switch_cases) {
+    const auto primitive = ResolvePrimitiveType(c.type, user_types).value_or(ir::PrimitiveType::kU1);
+    const int r = rank(primitive);
+    if (r > selected_rank) {
+      selected = primitive;
+      selected_rank = r;
+    }
+  }
+  return CppFieldType(selected);
 }
 
 std::optional<ir::PrimitiveType> EffectiveAttrPrimitive(const ir::Attr& attr,
@@ -574,6 +684,16 @@ std::string CppStorageType(const ir::Attr& attr, const std::map<std::string, ir:
   std::string base = attr.switch_on.has_value() ? SwitchCaseType(attr, user_types) : CppAttrType(attr, user_types);
   if (attr.repeat != ir::Attr::RepeatKind::kNone) return "std::unique_ptr<std::vector<" + base + ">>";
   return base;
+}
+
+std::string CppRepeatElementType(const ir::Attr& attr,
+                                 const std::map<std::string, ir::TypeRef>& user_types) {
+  const bool unresolved_user =
+      IsUnresolvedUserType(attr.type, user_types) && !attr.switch_on.has_value();
+  if (unresolved_user) {
+    return "std::unique_ptr<" + CppUserTypeName(attr.type.user_type) + ">";
+  }
+  return attr.switch_on.has_value() ? SwitchCaseType(attr, user_types) : CppAttrType(attr, user_types);
 }
 
 std::string CppAccessorType(const ir::Attr& attr, const std::map<std::string, ir::TypeRef>& user_types) {
@@ -723,9 +843,500 @@ bool NeedsStringInclude(const ir::Spec& spec, const std::map<std::string, ir::Ty
   return false;
 }
 
+std::string Indent(int level) { return std::string(level * 4, ' '); }
+
+std::string LastScopeSegment(const std::string& scope_name) {
+  auto parts = SplitScopePath(scope_name);
+  if (parts.empty()) return scope_name;
+  return parts.back();
+}
+
+std::string ParentScopeName(const std::string& scope_name) {
+  auto parts = SplitScopePath(scope_name);
+  if (parts.size() <= 1) return "";
+  return JoinScopePath(parts, parts.size() - 1);
+}
+
+std::string CppScopeTypeQualified(const std::string& root_name, const std::string& scope_name) {
+  std::ostringstream out;
+  out << root_name << "_t";
+  for (const auto& part : SplitScopePath(scope_name)) {
+    out << "::" << part << "_t";
+  }
+  return out.str();
+}
+
+std::vector<std::string> DirectChildScopes(const std::map<std::string, ir::Spec>& scopes,
+                                           const std::string& parent_scope) {
+  std::vector<std::string> out;
+  for (const auto& kv : scopes) {
+    const std::string& scope_name = kv.first;
+    if (ParentScopeName(scope_name) == parent_scope) out.push_back(scope_name);
+  }
+  std::sort(out.begin(), out.end());
+  return out;
+}
+
+std::optional<std::string> ResolveScopeRef(const std::string& ref,
+                                           const std::string& root_name,
+                                           const std::map<std::string, ir::Spec>& scopes) {
+  if (scopes.find(ref) != scopes.end()) return ref;
+  const std::string rooted = root_name + "::";
+  if (ref.rfind(rooted, 0) == 0) {
+    std::string rel = ref.substr(rooted.size());
+    if (scopes.find(rel) != scopes.end()) return rel;
+  }
+  for (const auto& kv : scopes) {
+    const std::string& scope_name = kv.first;
+    if (scope_name == ref) return scope_name;
+    if (scope_name.size() > ref.size() &&
+        scope_name.compare(scope_name.size() - ref.size(), ref.size(), ref) == 0 &&
+        scope_name[scope_name.size() - ref.size() - 1] == ':') {
+      return scope_name;
+    }
+  }
+  return std::nullopt;
+}
+
+std::string UpperSnake(const std::string& value) {
+  std::string out;
+  for (char c : value) {
+    const unsigned char uc = static_cast<unsigned char>(c);
+    if (std::isalnum(uc) != 0) {
+      out.push_back(static_cast<char>(std::toupper(uc)));
+    } else {
+      out.push_back('_');
+    }
+  }
+  if (out.empty() || (out[0] >= '0' && out[0] <= '9')) out.insert(out.begin(), '_');
+  return out;
+}
+
+std::string EnumShortName(const std::string& enum_name) {
+  const auto pos = enum_name.rfind("::");
+  return pos == std::string::npos ? enum_name : enum_name.substr(pos + 2);
+}
+
+std::string NestedEnumTypeName(const std::string& enum_name) { return EnumShortName(enum_name) + "_t"; }
+
+std::string NestedEnumValueName(const std::string& enum_name, const std::string& value_name) {
+  return UpperSnake(EnumShortName(enum_name)) + "_" + UpperSnake(value_name);
+}
+
+bool ScopeHasEnumName(const ir::Spec& scope_spec, const std::string& enum_name) {
+  for (const auto& e : scope_spec.enums) {
+    if (EnumShortName(e.name) == EnumShortName(enum_name)) return true;
+  }
+  return false;
+}
+
+std::optional<std::string> ResolveEnumOwnerScope(const std::string& current_scope,
+                                                 const std::string& enum_name,
+                                                 const std::map<std::string, ir::Spec>& scopes) {
+  std::string s = current_scope;
+  while (true) {
+    auto it = scopes.find(s);
+    if (it != scopes.end() && ScopeHasEnumName(it->second, enum_name)) return s;
+    if (s.empty()) break;
+    s = ParentScopeName(s);
+  }
+  return std::nullopt;
+}
+
+std::string ScopeParentCppPtrType(const std::string& root_name, const std::string& scope_name) {
+  const std::string parent = ParentScopeName(scope_name);
+  if (parent.empty()) return root_name + "_t*";
+  return CppScopeTypeQualified(root_name, parent) + "*";
+}
+
+std::string ScopeLocalTypeToken(const std::string& root_name,
+                                const std::string& current_scope,
+                                const std::string& target_scope) {
+  const std::string target_parent = ParentScopeName(target_scope);
+  if (target_parent == current_scope || target_scope == current_scope) {
+    return LastScopeSegment(target_scope) + "_t";
+  }
+  return CppScopeTypeQualified(root_name, target_scope);
+}
+
+bool HasSwitchElseCase(const ir::Attr& attr) {
+  for (const auto& c : attr.switch_cases) {
+    if (!c.match_expr.has_value()) return true;
+  }
+  return false;
+}
+
+std::string NestedAttrBaseType(const ir::Attr& attr,
+                               const std::string& current_scope,
+                               const std::string& root_name,
+                               const std::map<std::string, ir::Spec>& scopes,
+                               const std::map<std::string, ir::TypeRef>& user_types) {
+  if (attr.enum_name.has_value()) {
+    return NestedEnumTypeName(*attr.enum_name);
+  }
+  if (IsUnresolvedUserType(attr.type, user_types) && !attr.switch_on.has_value()) {
+    const auto resolved = ResolveScopeRef(attr.type.user_type, root_name, scopes);
+    const std::string type_expr = resolved.has_value()
+                                      ? ScopeLocalTypeToken(root_name, current_scope, *resolved)
+                                      : CppUserTypeName(attr.type.user_type);
+    return type_expr + "*";
+  }
+  if (attr.switch_on.has_value()) return SwitchCaseType(attr, user_types);
+  const auto primitive = ResolvePrimitiveType(attr.type, user_types).value_or(ir::PrimitiveType::kU1);
+  return CppFieldType(primitive);
+}
+
+std::string NestedAttrStorageType(const ir::Attr& attr,
+                                  const std::string& current_scope,
+                                  const std::string& root_name,
+                                  const std::map<std::string, ir::Spec>& scopes,
+                                  const std::map<std::string, ir::TypeRef>& user_types) {
+  if (attr.repeat != ir::Attr::RepeatKind::kNone) {
+    if (IsUnresolvedUserType(attr.type, user_types) && !attr.switch_on.has_value()) {
+      const auto resolved = ResolveScopeRef(attr.type.user_type, root_name, scopes);
+      const std::string type_expr = resolved.has_value()
+                                        ? ScopeLocalTypeToken(root_name, current_scope, *resolved)
+                                        : CppUserTypeName(attr.type.user_type);
+      return "std::unique_ptr<std::vector<std::unique_ptr<" + type_expr + ">>>";
+    }
+    return "std::unique_ptr<std::vector<" + NestedAttrBaseType(attr, current_scope, root_name, scopes, user_types) + ">>";
+  }
+  if (IsUnresolvedUserType(attr.type, user_types) && !attr.switch_on.has_value()) {
+    const auto resolved = ResolveScopeRef(attr.type.user_type, root_name, scopes);
+    const std::string type_expr = resolved.has_value()
+                                      ? ScopeLocalTypeToken(root_name, current_scope, *resolved)
+                                      : CppUserTypeName(attr.type.user_type);
+    return "std::unique_ptr<" + type_expr + ">";
+  }
+  return NestedAttrBaseType(attr, current_scope, root_name, scopes, user_types);
+}
+
+std::string NestedAttrAccessorType(const ir::Attr& attr,
+                                   const std::string& current_scope,
+                                   const std::string& root_name,
+                                   const std::map<std::string, ir::Spec>& scopes,
+                                   const std::map<std::string, ir::TypeRef>& user_types) {
+  if (attr.repeat != ir::Attr::RepeatKind::kNone) {
+    if (IsUnresolvedUserType(attr.type, user_types) && !attr.switch_on.has_value()) {
+      const auto resolved = ResolveScopeRef(attr.type.user_type, root_name, scopes);
+      const std::string type_expr = resolved.has_value()
+                                        ? ScopeLocalTypeToken(root_name, current_scope, *resolved)
+                                        : CppUserTypeName(attr.type.user_type);
+      return "std::vector<std::unique_ptr<" + type_expr + ">>*";
+    }
+    return "std::vector<" + NestedAttrBaseType(attr, current_scope, root_name, scopes, user_types) + ">*";
+  }
+  if (IsUnresolvedUserType(attr.type, user_types) && !attr.switch_on.has_value()) {
+    const auto resolved = ResolveScopeRef(attr.type.user_type, root_name, scopes);
+    const std::string type_expr = resolved.has_value()
+                                      ? ScopeLocalTypeToken(root_name, current_scope, *resolved)
+                                      : CppUserTypeName(attr.type.user_type);
+    return type_expr + "*";
+  }
+  return NestedAttrBaseType(attr, current_scope, root_name, scopes, user_types);
+}
+
+void EmitNestedClassHeader(std::ostringstream* out,
+                           const std::string& root_name,
+                           const std::string& scope_name,
+                           const std::map<std::string, ir::Spec>& scopes,
+                           const std::map<std::string, ir::TypeRef>& user_types,
+                           int indent);
+
+void EmitNestedClassSource(std::ostringstream* out,
+                           const std::string& root_name,
+                           const std::string& scope_name,
+                           const std::map<std::string, ir::Spec>& scopes,
+                           const std::map<std::string, ir::TypeRef>& user_types);
+
+void EmitNestedClassHeader(std::ostringstream* out,
+                           const std::string& root_name,
+                           const std::string& scope_name,
+                           const std::map<std::string, ir::Spec>& scopes,
+                           const std::map<std::string, ir::TypeRef>& user_types,
+                           int indent) {
+  const auto it = scopes.find(scope_name);
+  if (it == scopes.end()) return;
+  const ir::Spec& scope_spec = it->second;
+  const std::string class_name = LastScopeSegment(scope_name) + "_t";
+  const std::string parent_ptr_type = ScopeParentCppPtrType(root_name, scope_name);
+  const auto children = DirectChildScopes(scopes, scope_name);
+  const bool has_enums = !scope_spec.enums.empty();
+  const std::string ind = Indent(indent);
+  const std::string ind1 = Indent(indent + 1);
+
+  *out << ind << "class " << class_name << " : public kaitai::kstruct {\n\n";
+  *out << ind << "public:\n";
+  for (const auto& child : children) {
+    *out << ind1 << "class " << LastScopeSegment(child) << "_t;\n";
+  }
+  if (!children.empty()) *out << "\n";
+
+  for (const auto& e : scope_spec.enums) {
+    const std::string enum_ty = NestedEnumTypeName(e.name);
+    *out << ind1 << "enum " << enum_ty << " {\n";
+    for (size_t i = 0; i < e.values.size(); i++) {
+      const auto& v = e.values[i];
+      *out << Indent(indent + 2) << NestedEnumValueName(e.name, v.name) << " = " << v.value
+           << (i + 1 == e.values.size() ? "\n" : ",\n");
+    }
+    *out << ind1 << "};\n";
+    *out << ind1 << "static bool _is_defined_" << enum_ty << "(" << enum_ty << " v);\n\n";
+    *out << ind << "private:\n";
+    *out << ind1 << "static const std::set<" << enum_ty << "> _values_" << enum_ty << ";\n\n";
+    *out << ind << "public:\n";
+    *out << "\n";
+  }
+
+  if (children.empty() && !has_enums) {
+    *out << "\n";
+  }
+
+  *out << ind1 << class_name << "(kaitai::kstream* p__io, " << parent_ptr_type
+       << " p__parent = nullptr, " << root_name << "_t* p__root = nullptr);\n\n";
+  *out << ind << "private:\n";
+  *out << ind1 << "void _read();\n";
+  *out << ind1 << "void _clean_up();\n\n";
+  *out << ind << "public:\n";
+  *out << ind1 << "~" << class_name << "();\n";
+
+  for (const auto& child : children) {
+    *out << "\n";
+    EmitNestedClassHeader(out, root_name, child, scopes, user_types, indent + 1);
+  }
+  if (!children.empty()) {
+    *out << "\n";
+    *out << ind << "public:\n";
+  }
+
+  for (const auto& attr : scope_spec.attrs) {
+    const std::string access_type =
+        NestedAttrAccessorType(attr, scope_name, root_name, scopes, user_types);
+    if (attr.repeat != ir::Attr::RepeatKind::kNone ||
+        (IsUnresolvedUserType(attr.type, user_types) && !attr.switch_on.has_value())) {
+      *out << ind1 << access_type << " " << attr.id << "() const { return m_" << attr.id
+           << ".get(); }\n";
+    } else {
+      *out << ind1 << access_type << " " << attr.id << "() const { return m_" << attr.id
+           << "; }\n";
+    }
+  }
+  *out << ind1 << root_name << "_t* _root() const { return m__root; }\n";
+  *out << ind1 << parent_ptr_type << " _parent() const { return m__parent; }\n";
+
+  *out << "\n";
+  *out << ind << "private:\n";
+  bool has_nullable_switch = false;
+  for (const auto& attr : scope_spec.attrs) {
+    *out << ind1
+         << NestedAttrStorageType(attr, scope_name, root_name, scopes, user_types) << " m_"
+         << attr.id << ";\n";
+    if (attr.switch_on.has_value() && !HasSwitchElseCase(attr)) {
+      has_nullable_switch = true;
+      *out << ind1 << "bool n_" << attr.id << ";\n";
+    }
+  }
+  if (has_nullable_switch) {
+    *out << "\n";
+    *out << ind << "public:\n";
+    for (const auto& attr : scope_spec.attrs) {
+      if (attr.switch_on.has_value() && !HasSwitchElseCase(attr)) {
+        *out << ind1 << "bool _is_null_" << attr.id << "() { " << attr.id << "(); return n_"
+             << attr.id << "; };\n";
+      }
+    }
+    *out << "\n";
+    *out << ind << "private:\n";
+  }
+  *out << ind1 << root_name << "_t* m__root;\n";
+  *out << ind1 << parent_ptr_type << " m__parent;\n";
+  *out << ind << "};\n";
+}
+
+void EmitNestedClassSource(std::ostringstream* out,
+                           const std::string& root_name,
+                           const std::string& scope_name,
+                           const std::map<std::string, ir::Spec>& scopes,
+                           const std::map<std::string, ir::TypeRef>& user_types) {
+  const auto it = scopes.find(scope_name);
+  if (it == scopes.end()) return;
+  const ir::Spec& scope_spec = it->second;
+  const std::string class_name = LastScopeSegment(scope_name) + "_t";
+  const std::string full_class = CppScopeTypeQualified(root_name, scope_name);
+  const std::string parent_ptr_type = ScopeParentCppPtrType(root_name, scope_name);
+
+  std::set<std::string> attrs;
+  for (const auto& a : scope_spec.attrs) attrs.insert(a.id);
+  std::set<std::string> instances;
+
+  auto enum_cast_type = [&](const std::string& enum_name) {
+    auto owner = ResolveEnumOwnerScope(scope_name, enum_name, scopes);
+    if (owner.has_value()) {
+      return CppScopeTypeQualified(root_name, *owner) + "::" + NestedEnumTypeName(enum_name);
+    }
+    return NestedEnumTypeName(enum_name);
+  };
+
+  auto read_scope_user = [&](const ir::Attr& attr) {
+    const auto resolved = ResolveScopeRef(attr.type.user_type, root_name, scopes);
+    std::string type_expr = resolved.has_value()
+                                ? ScopeLocalTypeToken(root_name, scope_name, *resolved)
+                                : CppUserTypeName(attr.type.user_type);
+    std::ostringstream ctor_args;
+    bool first = true;
+    for (const auto& arg : attr.user_type_args) {
+      if (!first) ctor_args << ", ";
+      ctor_args << RenderExpr(arg, attrs, instances, -1);
+      first = false;
+    }
+    if (!first) ctor_args << ", ";
+    ctor_args << "m__io, this, m__root";
+    return "std::unique_ptr<" + type_expr + ">(new " + type_expr + "(" + ctor_args.str() + "))";
+  };
+
+  for (const auto& e : scope_spec.enums) {
+    const std::string enum_ty = NestedEnumTypeName(e.name);
+    *out << "const std::set<" << full_class << "::" << enum_ty << "> " << full_class
+         << "::_values_" << enum_ty << "{\n";
+    for (size_t i = 0; i < e.values.size(); i++) {
+      const auto& v = e.values[i];
+      (void)i;
+      *out << "    " << full_class << "::" << NestedEnumValueName(e.name, v.name) << ",\n";
+    }
+    *out << "};\n";
+    *out << "bool " << full_class << "::_is_defined_" << enum_ty << "(" << full_class << "::"
+         << enum_ty << " v) {\n";
+    *out << "    return " << full_class << "::_values_" << enum_ty << ".find(v) != " << full_class
+         << "::_values_" << enum_ty << ".end();\n";
+    *out << "}\n\n";
+  }
+
+  *out << full_class << "::" << class_name << "(kaitai::kstream* p__io, " << parent_ptr_type
+       << " p__parent, " << root_name << "_t* p__root) : kaitai::kstruct(p__io) {\n";
+  *out << "    m__parent = p__parent;\n";
+  *out << "    m__root = p__root;\n";
+  for (const auto& attr : scope_spec.attrs) {
+    if (attr.repeat != ir::Attr::RepeatKind::kNone ||
+        (IsUnresolvedUserType(attr.type, user_types) && !attr.switch_on.has_value())) {
+      *out << "    m_" << attr.id << " = nullptr;\n";
+    }
+  }
+  *out << "    _read();\n";
+  *out << "}\n\n";
+
+  *out << "void " << full_class << "::_read() {\n";
+  for (const auto& attr : scope_spec.attrs) {
+    if (attr.switch_on.has_value() && attr.repeat == ir::Attr::RepeatKind::kNone) {
+      const bool has_else = HasSwitchElseCase(attr);
+      if (!has_else) {
+        *out << "    n_" << attr.id << " = true;\n";
+      }
+      *out << "    switch (" << RenderExpr(*attr.switch_on, attrs, instances, -1) << ") {\n";
+      for (const auto& c : attr.switch_cases) {
+        if (!c.match_expr.has_value()) {
+          *out << "    default: {\n";
+        } else {
+          *out << "    case " << c.match_expr->int_value << ": {\n";
+        }
+        if (!has_else || !c.match_expr.has_value()) {
+          *out << "        n_" << attr.id << " = false;\n";
+        }
+        const auto case_primitive = ResolvePrimitiveType(c.type, user_types).value_or(ir::PrimitiveType::kU1);
+        *out << "        m_" << attr.id << " = "
+             << CppReadPrimitiveExpr(case_primitive, attr.endian_override, scope_spec.default_endian)
+             << ";\n";
+        *out << "        break;\n";
+        *out << "    }\n";
+      }
+      *out << "    }\n";
+      continue;
+    }
+
+    if (attr.repeat == ir::Attr::RepeatKind::kNone) {
+      if (IsUnresolvedUserType(attr.type, user_types) && !attr.switch_on.has_value()) {
+        *out << "    m_" << attr.id << " = " << read_scope_user(attr) << ";\n";
+      } else if (attr.enum_name.has_value()) {
+        const auto primitive = ResolvePrimitiveType(attr.type, user_types).value_or(ir::PrimitiveType::kU1);
+        *out << "    m_" << attr.id << " = static_cast<" << enum_cast_type(*attr.enum_name) << ">("
+             << CppReadPrimitiveExpr(primitive, attr.endian_override, scope_spec.default_endian) << ");\n";
+      } else {
+        *out << "    m_" << attr.id << " = "
+             << ReadExpr(attr, scope_spec.default_endian, attrs, instances, user_types) << ";\n";
+      }
+      continue;
+    }
+
+    const std::string repeat_elem =
+        IsUnresolvedUserType(attr.type, user_types) && !attr.switch_on.has_value()
+            ? ("std::unique_ptr<" +
+               (ResolveScopeRef(attr.type.user_type, root_name, scopes).has_value()
+                    ? ScopeLocalTypeToken(root_name, scope_name,
+                                          *ResolveScopeRef(attr.type.user_type, root_name, scopes))
+                    : CppUserTypeName(attr.type.user_type)) +
+               ">")
+            : NestedAttrBaseType(attr, scope_name, root_name, scopes, user_types);
+
+    *out << "    m_" << attr.id << " = std::unique_ptr<std::vector<" << repeat_elem
+         << ">>(new std::vector<" << repeat_elem << ">());\n";
+    if (attr.repeat == ir::Attr::RepeatKind::kEos) {
+      *out << "    while (!m__io->is_eof()) {\n";
+      if (IsUnresolvedUserType(attr.type, user_types) && !attr.switch_on.has_value()) {
+        *out << "        m_" << attr.id << "->push_back(" << read_scope_user(attr) << ");\n";
+      } else {
+        *out << "        m_" << attr.id << "->push_back("
+             << ReadExpr(attr, scope_spec.default_endian, attrs, instances, user_types) << ");\n";
+      }
+      *out << "    }\n";
+    } else if (attr.repeat == ir::Attr::RepeatKind::kExpr) {
+      *out << "    const int l_" << attr.id << " = " << RenderExpr(*attr.repeat_expr, attrs, instances, -1)
+           << ";\n";
+      *out << "    for (int i = 0; i < l_" << attr.id << "; i++) {\n";
+      if (IsUnresolvedUserType(attr.type, user_types) && !attr.switch_on.has_value()) {
+        *out << "        m_" << attr.id << "->push_back(" << read_scope_user(attr) << ");\n";
+      } else {
+        *out << "        m_" << attr.id << "->push_back(std::move("
+             << ReadExpr(attr, scope_spec.default_endian, attrs, instances, user_types) << "));\n";
+      }
+      *out << "    }\n";
+    } else {
+      *out << "    do {\n";
+      if (IsUnresolvedUserType(attr.type, user_types) && !attr.switch_on.has_value()) {
+        *out << "        auto repeat_item = " << read_scope_user(attr) << ";\n";
+      } else {
+        *out << "        auto repeat_item = "
+             << ReadExpr(attr, scope_spec.default_endian, attrs, instances, user_types) << ";\n";
+      }
+      *out << "        m_" << attr.id << "->push_back(std::move(repeat_item));\n";
+      *out << "    } while (!("
+           << RenderExpr(*attr.repeat_expr, attrs, instances, -1, "repeat_item") << "));\n";
+    }
+  }
+  *out << "}\n\n";
+
+  *out << full_class << "::~" << class_name << "() {\n";
+  *out << "    _clean_up();\n";
+  *out << "}\n\n";
+
+  *out << "void " << full_class << "::_clean_up() {\n";
+  for (const auto& attr : scope_spec.attrs) {
+    if (attr.switch_on.has_value() && !HasSwitchElseCase(attr)) {
+      *out << "    if (!n_" << attr.id << ") {\n";
+      *out << "    }\n";
+    }
+  }
+  *out << "}\n";
+
+  *out << "\n";
+
+  for (const auto& child : DirectChildScopes(scopes, scope_name)) {
+    EmitNestedClassSource(out, root_name, child, scopes, user_types);
+  }
+}
+
 std::string RenderHeader(const ir::Spec& spec) {
   const auto instance_types = ComputeInstanceTypes(spec);
   const auto user_types = BuildUserTypeMap(spec);
+  const auto local_scopes = DecodeEmbeddedScopes(spec);
   std::set<std::string> required_import_headers;
   const auto maybe_add_import = [&](const ir::TypeRef& type_ref) {
     if (!IsUnresolvedUserType(type_ref, user_types)) return;
@@ -766,6 +1377,16 @@ std::string RenderHeader(const ir::Spec& spec) {
   out << "#include <memory>\n";
   if (NeedsStringInclude(spec, user_types)) out << "#include <string>\n";
   if (NeedsVectorInclude(spec)) out << "#include <vector>\n";
+  bool needs_set_include = !spec.enums.empty();
+  if (!needs_set_include) {
+    for (const auto& kv : local_scopes) {
+      if (!kv.second.enums.empty()) {
+        needs_set_include = true;
+        break;
+      }
+    }
+  }
+  if (needs_set_include) out << "#include <set>\n";
   std::set<std::string> emitted_imports;
   for (const auto& imp : spec.imports) {
     const std::string stem = ImportStem(imp);
@@ -787,13 +1408,26 @@ std::string RenderHeader(const ir::Spec& spec) {
     out << "};\n\n";
   }
   out << "class " << spec.name << "_t : public kaitai::kstruct {\n\n";
-  out << "public:\n\n";
+  out << "public:\n";
+  const auto root_children = DirectChildScopes(local_scopes, "");
+  if (root_children.empty()) out << "\n";
+  for (const auto& child : root_children) {
+    out << "    class " << LastScopeSegment(child) << "_t;\n";
+  }
+  if (!root_children.empty()) out << "\n";
   out << "    " << spec.name << "_t(" << ctor_param_decl() << ");\n\n";
   out << "private:\n";
   out << "    void _read();\n";
   out << "    void _clean_up();\n\n";
   out << "public:\n";
   out << "    ~" << spec.name << "_t();\n";
+  for (const auto& child : root_children) {
+    out << "\n";
+    EmitNestedClassHeader(&out, spec.name, child, local_scopes, user_types, 1);
+  }
+  if (!local_scopes.empty()) {
+    out << "\npublic:\n";
+  }
   std::vector<std::string> raw_accessors;
   std::vector<std::string> raw_fields;
   for (const auto& inst : spec.instances) {
@@ -864,6 +1498,7 @@ std::string ValidationValueType(const std::string& target, const ir::Spec& spec,
 std::string RenderSource(const ir::Spec& spec) {
   const auto instance_types = ComputeInstanceTypes(spec);
   const auto user_types = BuildUserTypeMap(spec);
+  const auto local_scopes = DecodeEmbeddedScopes(spec);
   const auto ctor_param_decl = [&]() {
     std::ostringstream args;
     for (const auto& p : spec.params) {
@@ -950,32 +1585,39 @@ std::string RenderSource(const ir::Spec& spec) {
         }
       }
     } else if (attr.repeat == ir::Attr::RepeatKind::kEos) {
-      out << indent << "m_" << attr.id << " = std::unique_ptr<std::vector<"
-          << (attr.switch_on.has_value() ? SwitchCaseType(attr, user_types) : CppAttrType(attr, user_types))
-          << ">>(new std::vector<"
-          << (attr.switch_on.has_value() ? SwitchCaseType(attr, user_types) : CppAttrType(attr, user_types))
-          << ">());\n";
-      out << indent << "while (!m__io->is_eof()) {\n";
-      if (attr.switch_on.has_value()) out << nested_indent << "m_" << attr.id << "->push_back(" << ReadSwitchExpr(attr, spec.default_endian, attr_names, {}, user_types) << ");\n";
-      else out << nested_indent << "m_" << attr.id << "->push_back(" << ReadExpr(attr, spec.default_endian, attr_names, {}, user_types) << ");\n";
-      out << indent << "}\n";
+      const std::string repeat_elem = CppRepeatElementType(attr, user_types);
+      out << indent << "m_" << attr.id << " = std::unique_ptr<std::vector<" << repeat_elem
+          << ">>(new std::vector<" << repeat_elem << ">());\n";
+      const bool unresolved_user =
+          IsUnresolvedUserType(attr.type, user_types) && !attr.switch_on.has_value();
+      if (unresolved_user) {
+        out << indent << "{\n";
+        out << nested_indent << "int i = 0;\n";
+        out << nested_indent << "while (!m__io->is_eof()) {\n";
+        out << nested_indent << "    m_" << attr.id << "->push_back(std::move("
+            << ReadExpr(attr, spec.default_endian, attr_names, {}, user_types) << "));\n";
+        out << nested_indent << "    i++;\n";
+        out << nested_indent << "}\n";
+        out << indent << "}\n";
+      } else {
+        out << indent << "while (!m__io->is_eof()) {\n";
+        if (attr.switch_on.has_value()) out << nested_indent << "m_" << attr.id << "->push_back(" << ReadSwitchExpr(attr, spec.default_endian, attr_names, {}, user_types) << ");\n";
+        else out << nested_indent << "m_" << attr.id << "->push_back(" << ReadExpr(attr, spec.default_endian, attr_names, {}, user_types) << ");\n";
+        out << indent << "}\n";
+      }
     } else if (attr.repeat == ir::Attr::RepeatKind::kExpr) {
-      out << indent << "m_" << attr.id << " = std::unique_ptr<std::vector<"
-          << (attr.switch_on.has_value() ? SwitchCaseType(attr, user_types) : CppAttrType(attr, user_types))
-          << ">>(new std::vector<"
-          << (attr.switch_on.has_value() ? SwitchCaseType(attr, user_types) : CppAttrType(attr, user_types))
-          << ">());\n";
+      const std::string repeat_elem = CppRepeatElementType(attr, user_types);
+      out << indent << "m_" << attr.id << " = std::unique_ptr<std::vector<" << repeat_elem
+          << ">>(new std::vector<" << repeat_elem << ">());\n";
       out << indent << "const int l_" << attr.id << " = " << RenderExpr(*attr.repeat_expr, attr_names, {}, -1) << ";\n";
       out << indent << "for (int i = 0; i < l_" << attr.id << "; i++) {\n";
       if (attr.switch_on.has_value()) out << nested_indent << "m_" << attr.id << "->push_back(std::move(" << ReadSwitchExpr(attr, spec.default_endian, attr_names, {}, user_types) << "));\n";
       else out << nested_indent << "m_" << attr.id << "->push_back(std::move(" << ReadExpr(attr, spec.default_endian, attr_names, {}, user_types) << "));\n";
       out << indent << "}\n";
     } else {
-      out << indent << "m_" << attr.id << " = std::unique_ptr<std::vector<"
-          << (attr.switch_on.has_value() ? SwitchCaseType(attr, user_types) : CppAttrType(attr, user_types))
-          << ">>(new std::vector<"
-          << (attr.switch_on.has_value() ? SwitchCaseType(attr, user_types) : CppAttrType(attr, user_types))
-          << ">());\n";
+      const std::string repeat_elem = CppRepeatElementType(attr, user_types);
+      out << indent << "m_" << attr.id << " = std::unique_ptr<std::vector<" << repeat_elem
+          << ">>(new std::vector<" << repeat_elem << ">());\n";
       out << indent << "do {\n";
       if (attr.switch_on.has_value()) {
         out << nested_indent << "auto repeat_item = " << ReadSwitchExpr(attr, spec.default_endian, attr_names, {}, user_types) << ";\n";
@@ -1038,6 +1680,19 @@ std::string RenderSource(const ir::Spec& spec) {
     out << "    }\n";
   }
   out << "}\n";
+
+  if (!local_scopes.empty()) {
+    const auto root_children = DirectChildScopes(local_scopes, "");
+    if (!root_children.empty()) {
+      const auto it_first = local_scopes.find(root_children.front());
+      if (it_first != local_scopes.end() && it_first->second.enums.empty()) {
+        out << "\n";
+      }
+    }
+    for (const auto& child : root_children) {
+      EmitNestedClassSource(&out, spec.name, child, local_scopes, user_types);
+    }
+  }
 
   std::set<std::string> known_instances;
   for (const auto& inst : spec.instances) {
@@ -1260,20 +1915,79 @@ std::string RenderPythonModule(const ir::Spec& spec) {
 
 std::string RenderRubyModule(const ir::Spec& spec) {
   const std::string class_name = ToUpperCamelIdentifier(spec.name);
-  std::set<std::string> attrs;
-  for (const auto& a : spec.attrs) attrs.insert(a.id);
-  std::set<std::string> known_instances;
   const auto user_types = BuildUserTypeMap(spec);
-  std::function<std::string(const ir::Expr&, int)> expr;
-  expr = [&](const ir::Expr& e, int parent_prec) {
+  const auto local_scopes = DecodeEmbeddedScopes(spec);
+  const auto ruby_indent = [](int level) { return std::string(level * 2, ' '); };
+  const auto ruby_scope_path = [&](const std::string& scope_name) {
+    std::ostringstream out;
+    const auto parts = SplitScopePath(scope_name);
+    for (size_t i = 0; i < parts.size(); i++) {
+      if (i > 0) out << "::";
+      out << ToUpperCamelIdentifier(parts[i]);
+    }
+    return out.str();
+  };
+
+  auto ruby_scope_ref = [&](const std::string& current_scope, const std::string& target_scope) {
+    if (target_scope == current_scope) return ToUpperCamelIdentifier(LastScopeSegment(target_scope));
+    if (current_scope.empty()) {
+      const std::string rel = ruby_scope_path(target_scope);
+      if (!rel.empty()) return rel;
+    } else {
+      const std::string prefix = current_scope + "::";
+      if (target_scope.rfind(prefix, 0) == 0) {
+        const std::string rel = target_scope.substr(prefix.size());
+        if (!rel.empty()) return ruby_scope_path(rel);
+      }
+    }
+    const std::string rooted = ruby_scope_path(target_scope);
+    return rooted.empty() ? class_name : class_name + "::" + rooted;
+  };
+
+  auto ruby_user_type_ref = [&](const std::string& current_scope, const ir::TypeRef& type_ref) {
+    const auto resolved = ResolveScopeRef(type_ref.user_type, spec.name, local_scopes);
+    if (resolved.has_value()) return ruby_scope_ref(current_scope, *resolved);
+    const auto parts = SplitScopePath(type_ref.user_type);
+    if (parts.empty()) return ToUpperCamelIdentifier(type_ref.user_type);
+    std::ostringstream out;
+    for (size_t i = 0; i < parts.size(); i++) {
+      if (i > 0) out << "::";
+      out << ToUpperCamelIdentifier(parts[i]);
+    }
+    return out.str();
+  };
+
+  std::function<std::string(const ir::Expr&, int, const std::set<std::string>&,
+                            const std::set<std::string>&, bool, const std::string&)> expr;
+  expr = [&](const ir::Expr& e, int parent_prec, const std::set<std::string>& attrs,
+             const std::set<std::string>& known_instances, bool use_reader_names,
+             const std::string& repeat_item) {
     switch (e.kind) {
-    case ir::Expr::Kind::kInt: return std::to_string(e.int_value);
-    case ir::Expr::Kind::kBool: return e.bool_value ? std::string("true") : std::string("false");
-    case ir::Expr::Kind::kName: return (attrs.find(e.text) != attrs.end() || known_instances.find(e.text) != known_instances.end()) ? ("@" + e.text) : e.text;
-    case ir::Expr::Kind::kUnary: return "(" + NormalizeOp(e.text) + expr(*e.lhs, 90) + ")";
+    case ir::Expr::Kind::kInt:
+      return std::to_string(e.int_value);
+    case ir::Expr::Kind::kBool:
+      return e.bool_value ? std::string("true") : std::string("false");
+    case ir::Expr::Kind::kName:
+      if (!repeat_item.empty() && e.text == "_") return repeat_item;
+      if (attrs.find(e.text) != attrs.end() || known_instances.find(e.text) != known_instances.end()) {
+        return use_reader_names ? e.text : ("@" + e.text);
+      }
+      return e.text;
+    case ir::Expr::Kind::kUnary: {
+      std::string payload;
+      if (ParseSpecialUnary(e.text, "__cast__:", &payload)) {
+        return expr(*e.lhs, 90, attrs, known_instances, use_reader_names, repeat_item);
+      }
+      if (ParseSpecialUnary(e.text, "__attr__:", &payload)) {
+        return expr(*e.lhs, 90, attrs, known_instances, use_reader_names, repeat_item) + "." + payload;
+      }
+      return "(" + NormalizeOp(e.text) + expr(*e.lhs, 90, attrs, known_instances, use_reader_names, repeat_item) + ")";
+    }
     case ir::Expr::Kind::kBinary: {
       const int prec = ExprPrecedence(e);
-      std::string rendered = expr(*e.lhs, prec) + " " + NormalizeOp(e.text) + " " + expr(*e.rhs, prec + 1);
+      std::string rendered = expr(*e.lhs, prec, attrs, known_instances, use_reader_names, repeat_item) +
+                             " " + NormalizeOp(e.text) + " " +
+                             expr(*e.rhs, prec + 1, attrs, known_instances, use_reader_names, repeat_item);
       if (prec <= parent_prec) rendered = "(" + rendered + ")";
       return rendered;
     }
@@ -1281,24 +1995,11 @@ std::string RenderRubyModule(const ir::Spec& spec) {
     return std::string("0");
   };
 
-  auto read_primitive = [&](ir::PrimitiveType primitive, std::optional<ir::Endian> override_endian) {
+  auto read_primitive = [&](ir::PrimitiveType primitive, std::optional<ir::Endian> override_endian,
+                            ir::Endian default_endian) {
     if (primitive == ir::PrimitiveType::kBytes) return std::string("@_io.read_bytes_full");
     if (primitive == ir::PrimitiveType::kStr) return std::string("''");
-    return std::string("@_io.") + ReadMethod(primitive, override_endian.value_or(spec.default_endian));
-  };
-
-  auto read_parse_instance = [&](const ir::Instance& inst) {
-    const auto primitive = ResolvePrimitiveType(inst.type, user_types).value_or(ir::PrimitiveType::kU1);
-    if (primitive == ir::PrimitiveType::kBytes) {
-      if (inst.size_expr.has_value()) return "@_io.read_bytes(" + expr(*inst.size_expr, -1) + ")";
-      return std::string("@_io.read_bytes_full");
-    }
-    if (primitive == ir::PrimitiveType::kStr) {
-      if (!inst.size_expr.has_value()) return std::string("\"\"");
-      return "(@_io.read_bytes(" + expr(*inst.size_expr, -1) + ")).force_encoding(\"" +
-             inst.encoding.value_or("UTF-8") + "\").encode('UTF-8')";
-    }
-    return "@_io." + ReadMethod(primitive, inst.endian_override.value_or(spec.default_endian));
+    return std::string("@_io.") + ReadMethod(primitive, override_endian.value_or(default_endian));
   };
 
   std::ostringstream out;
@@ -1308,56 +2009,180 @@ std::string RenderRubyModule(const ir::Spec& spec) {
   out << "unless Gem::Version.new(Kaitai::Struct::VERSION) >= Gem::Version.new('0.11')\n";
   out << "  raise \"Incompatible Kaitai Struct Ruby API: 0.11 or later is required, but you have #{Kaitai::Struct::VERSION}\"\n";
   out << "end\n\n";
-  out << "class " << class_name << " < Kaitai::Struct::Struct\n";
-  out << "  def initialize(_io, _parent = nil, _root = nil)\n";
-  out << "    super(_io, _parent, _root || self)\n";
-  out << "    _read\n";
-  out << "  end\n\n";
-  out << "  def _read\n";
-  for (const auto& attr : spec.attrs) {
-    const auto primitive = ResolvePrimitiveType(attr.type, user_types).value_or(ir::PrimitiveType::kU1);
-    std::string read = read_primitive(primitive, attr.endian_override);
-    if (primitive == ir::PrimitiveType::kBytes) {
-      read = attr.size_expr.has_value() ? ("@_io.read_bytes(" + expr(*attr.size_expr, -1) + ")") : "@_io.read_bytes_full";
-      if (attr.process.has_value() && attr.process->kind == ir::Attr::Process::Kind::kXorConst) {
-        read = "Kaitai::Struct::Stream.process_xor_one(" + read + ", " + std::to_string(attr.process->xor_const) + ")";
+
+  std::function<void(const ir::Spec&, const std::string&, const std::string&, int, bool)> emit_class;
+  emit_class = [&](const ir::Spec& scope_spec, const std::string& scope_name,
+                   const std::string& ruby_name, int indent, bool is_root) {
+    const std::string ind = ruby_indent(indent);
+    const std::string ind1 = ruby_indent(indent + 1);
+    const std::string ind2 = ruby_indent(indent + 2);
+    std::set<std::string> attrs;
+    for (const auto& a : scope_spec.attrs) attrs.insert(a.id);
+    std::set<std::string> known_instances;
+
+    auto read_value = [&](const ir::Attr& attr) {
+      const auto primitive = ResolvePrimitiveType(attr.type, user_types).value_or(ir::PrimitiveType::kU1);
+      const bool unresolved_user =
+          IsUnresolvedUserType(attr.type, user_types) && !attr.switch_on.has_value();
+      if (unresolved_user) {
+        return ruby_user_type_ref(scope_name, attr.type) + ".new(@_io, self, @_root)";
+      }
+      if (primitive == ir::PrimitiveType::kBytes) {
+        std::string read =
+            attr.size_expr.has_value()
+                ? ("@_io.read_bytes(" +
+                   expr(*attr.size_expr, -1, attrs, known_instances, true, "") + ")")
+                : "@_io.read_bytes_full";
+        if (attr.process.has_value() &&
+            attr.process->kind == ir::Attr::Process::Kind::kXorConst) {
+          read = "Kaitai::Struct::Stream.process_xor_one(" + read + ", " +
+                 std::to_string(attr.process->xor_const) + ")";
+        }
+        return read;
+      }
+      if (primitive == ir::PrimitiveType::kStr && attr.size_expr.has_value()) {
+        return "(@_io.read_bytes(" +
+               expr(*attr.size_expr, -1, attrs, known_instances, true, "") +
+               ")).force_encoding(\"" + attr.encoding.value_or("UTF-8") +
+               "\").encode('UTF-8')";
+      }
+      return read_primitive(primitive, attr.endian_override, scope_spec.default_endian);
+    };
+
+    auto read_parse_instance = [&](const ir::Instance& inst) {
+      const auto primitive = ResolvePrimitiveType(inst.type, user_types).value_or(ir::PrimitiveType::kU1);
+      if (IsUnresolvedUserType(inst.type, user_types)) {
+        return ruby_user_type_ref(scope_name, inst.type) + ".new(@_io, self, @_root)";
+      }
+      if (primitive == ir::PrimitiveType::kBytes) {
+        if (inst.size_expr.has_value()) {
+          return "@_io.read_bytes(" +
+                 expr(*inst.size_expr, -1, attrs, known_instances, true, "") + ")";
+        }
+        return std::string("@_io.read_bytes_full");
+      }
+      if (primitive == ir::PrimitiveType::kStr) {
+        if (!inst.size_expr.has_value()) return std::string("\"\"");
+        return "(@_io.read_bytes(" +
+               expr(*inst.size_expr, -1, attrs, known_instances, true, "") +
+               ")).force_encoding(\"" + inst.encoding.value_or("UTF-8") +
+               "\").encode('UTF-8')";
+      }
+      return "@_io." + ReadMethod(primitive, inst.endian_override.value_or(scope_spec.default_endian));
+    };
+
+    out << ind << "class " << ruby_name << " < Kaitai::Struct::Struct\n";
+    out << ind1 << "def initialize(_io, _parent = nil, _root = nil)\n";
+    if (is_root) {
+      out << ind2 << "super(_io, _parent, _root || self)\n";
+    } else {
+      out << ind2 << "super(_io, _parent, _root)\n";
+    }
+    out << ind2 << "_read\n";
+    out << ind1 << "end\n\n";
+    out << ind1 << "def _read\n";
+    for (const auto& attr : scope_spec.attrs) {
+      if (attr.repeat == ir::Attr::RepeatKind::kExpr) {
+        out << ind2 << "@" << attr.id << " = []\n";
+        out << ind2 << "("
+            << expr(*attr.repeat_expr, -1, attrs, known_instances, true, "") << ").times { |i|\n";
+        out << ind2 << "  @" << attr.id << " << " << read_value(attr) << "\n";
+        out << ind2 << "}\n";
+        continue;
+      }
+      if (attr.repeat == ir::Attr::RepeatKind::kEos) {
+        out << ind2 << "@" << attr.id << " = []\n";
+        out << ind2 << "i = 0\n";
+        out << ind2 << "while not @_io.eof?\n";
+        out << ind2 << "  @" << attr.id << " << " << read_value(attr) << "\n";
+        out << ind2 << "  i += 1\n";
+        out << ind2 << "end\n";
+        continue;
+      }
+      if (attr.repeat == ir::Attr::RepeatKind::kUntil) {
+        out << ind2 << "@" << attr.id << " = []\n";
+        out << ind2 << "i = 0\n";
+        out << ind2 << "loop do\n";
+        out << ind2 << "  _ = " << read_value(attr) << "\n";
+        out << ind2 << "  @" << attr.id << " << _\n";
+        out << ind2 << "  i += 1\n";
+        out << ind2 << "  break if "
+            << expr(*attr.repeat_expr, -1, attrs, known_instances, true, "_") << "\n";
+        out << ind2 << "end\n";
+        continue;
+      }
+      if (attr.switch_on.has_value()) {
+        out << ind2 << "case "
+            << expr(*attr.switch_on, -1, attrs, known_instances, true, "") << "\n";
+        for (const auto& c : attr.switch_cases) {
+          if (c.match_expr.has_value()) {
+            out << ind2 << "when "
+                << expr(*c.match_expr, -1, attrs, known_instances, true, "") << "\n";
+          } else {
+            out << ind2 << "else\n";
+          }
+          const bool case_user = IsUnresolvedUserType(c.type, user_types);
+          if (case_user) {
+            out << ind2 << "  @" << attr.id << " = "
+                << ruby_user_type_ref(scope_name, c.type)
+                << ".new(@_io, self, @_root)\n";
+          } else {
+            const auto case_primitive =
+                ResolvePrimitiveType(c.type, user_types).value_or(ir::PrimitiveType::kU1);
+            out << ind2 << "  @" << attr.id << " = "
+                << read_primitive(case_primitive, attr.endian_override, scope_spec.default_endian) << "\n";
+          }
+        }
+        out << ind2 << "end\n";
+        continue;
+      }
+      out << ind2 << "@" << attr.id << " = " << read_value(attr) << "\n";
+    }
+    for (const auto& v : scope_spec.validations) {
+      out << ind2
+          << "raise Kaitai::Struct::ValidationExprError.new(@" << v.target
+          << ", @_io, '/valid/" << v.target << "') if !("
+          << expr(v.condition_expr, -1, attrs, known_instances, true, "") << ")\n";
+    }
+    out << ind2 << "self\n";
+    out << ind1 << "end\n";
+
+    for (const auto& child : DirectChildScopes(local_scopes, scope_name)) {
+      const auto it_child = local_scopes.find(child);
+      if (it_child != local_scopes.end()) {
+        emit_class(it_child->second, child, ToUpperCamelIdentifier(LastScopeSegment(child)),
+                   indent + 1, false);
       }
     }
-    if (attr.repeat == ir::Attr::RepeatKind::kExpr) {
-      out << "    @" << attr.id << " = []\n";
-      out << "    (" << expr(*attr.repeat_expr, -1) << ").times { |i|\n";
-      out << "      @" << attr.id << " << " << read << "\n";
-      out << "    }\n";
-    } else {
-      out << "    @" << attr.id << " = " << read << "\n";
+
+    for (const auto& attr : scope_spec.attrs) {
+      out << ind1 << "attr_reader :" << attr.id << "\n";
     }
-  }
-  for (const auto& v : spec.validations) {
-    out << "    raise Kaitai::Struct::ValidationExprError.new(@" << v.target << ", @_io, '/valid/" << v.target << "') if !(" << expr(v.condition_expr, -1) << ")\n";
-  }
-  out << "    self\n";
-  out << "  end\n";
-  for (const auto& attr : spec.attrs) out << "  attr_reader :" << attr.id << "\n";
-  bool first_instance = true;
-  for (const auto& inst : spec.instances) {
-    if (!first_instance) out << "\n";
-    out << "  def " << inst.id << "\n";
-    out << "    return @" << inst.id << " unless @" << inst.id << ".nil?\n";
-    if (inst.kind == ir::Instance::Kind::kParse) {
-      out << "    _pos = @_io.pos\n";
-      if (inst.pos_expr.has_value()) {
-        out << "    @_io.seek(" << expr(*inst.pos_expr, -1) << ")\n";
+    bool first_instance = true;
+    for (const auto& inst : scope_spec.instances) {
+      if (!first_instance) out << "\n";
+      out << ind1 << "def " << inst.id << "\n";
+      out << ind2 << "return @" << inst.id << " unless @" << inst.id << ".nil?\n";
+      if (inst.kind == ir::Instance::Kind::kParse) {
+        out << ind2 << "_pos = @_io.pos\n";
+        if (inst.pos_expr.has_value()) {
+          out << ind2 << "@_io.seek("
+              << expr(*inst.pos_expr, -1, attrs, known_instances, true, "") << ")\n";
+        }
+        out << ind2 << "@" << inst.id << " = " << read_parse_instance(inst) << "\n";
+        out << ind2 << "@_io.seek(_pos)\n";
+      } else {
+        out << ind2 << "@" << inst.id
+            << " = " << expr(inst.value_expr, -1, attrs, known_instances, true, "") << "\n";
       }
-      out << "    @" << inst.id << " = " << read_parse_instance(inst) << "\n";
-      out << "    @_io.seek(_pos)\n";
-    } else {
-      out << "    @" << inst.id << " = " << expr(inst.value_expr, -1) << "\n";
+      out << ind2 << "@" << inst.id << "\n" << ind1 << "end\n";
+      known_instances.insert(inst.id);
+      first_instance = false;
     }
-    out << "    @" << inst.id << "\n  end\n";
-    known_instances.insert(inst.id);
-    first_instance = false;
-  }
-  out << "end\n";
+    out << ind << "end\n";
+  };
+
+  emit_class(spec, "", class_name, 0, true);
   return out.str();
 }
 

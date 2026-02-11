@@ -5,6 +5,8 @@ import io.kaitai.struct.datatype.DataType._
 import io.kaitai.struct.datatype.{BigEndian, FixedEndian, LittleEndian}
 import io.kaitai.struct.exprlang.Ast
 import io.kaitai.struct.format._
+import java.nio.charset.StandardCharsets
+import java.util.Base64
 
 object MigrationIr {
   def serialize(spec: ClassSpec): String = {
@@ -22,7 +24,10 @@ object MigrationIr {
       out.append(s"param ${quote(p.id.humanReadable)} ${renderTypeRef(typeRefFromDataType(p.dataType))}\n")
     }
 
-    val types = spec.types.values.toList.map(t => TypeRow(t.name.lastOption.getOrElse(t.nameAsStr), TypeRef.user(t.nameAsStr)))
+    val types = collectLocalTypes(spec).map { case (relName, localSpec) =>
+      val encodedScope = Base64.getEncoder.encodeToString(serializeScopeSpec(localSpec).getBytes(StandardCharsets.UTF_8))
+      TypeRow(relName, TypeRef.user(s"__scope_b64__:$encodedScope"))
+    }
     out.append(s"types ${types.size}\n")
     types.foreach { t =>
       out.append(s"type ${quote(t.name)} ${renderTypeRef(t.typeRef)}\n")
@@ -193,6 +198,107 @@ object MigrationIr {
         enumSpec.map.toSeq.map { case (id, valueSpec) => EnumValueRow(id, valueSpec.name) }
       )
     }
+  }
+
+  private def relativeTypeName(rootName: String, fullName: String): String = {
+    val prefix = s"$rootName::"
+    if (fullName.startsWith(prefix)) fullName.substring(prefix.length) else fullName
+  }
+
+  private def collectLocalTypes(spec: ClassSpec): Seq[(String, ClassSpec)] = {
+    val rootName = spec.nameAsStr
+    def rec(cur: ClassSpec): Seq[(String, ClassSpec)] = {
+      val direct = cur.types.values.toSeq.sortBy(_.nameAsStr)
+      direct.flatMap { child =>
+        Seq((relativeTypeName(rootName, child.nameAsStr), child)) ++ rec(child)
+      }
+    }
+    rec(spec)
+  }
+
+  private def serializeScopeSpec(spec: ClassSpec): String = {
+    val out = new StringBuilder
+    out.append("KSIR1\n")
+    out.append(s"name ${quote(spec.nameAsStr)}\n")
+    out.append(s"default_endian ${endianToIr(spec.meta.endian.collect { case f: FixedEndian => f })}\n")
+    out.append("imports 0\n")
+
+    out.append(s"params ${spec.params.size}\n")
+    spec.params.foreach { p =>
+      out.append(s"param ${quote(p.id.humanReadable)} ${renderTypeRef(typeRefFromDataType(p.dataType))}\n")
+    }
+
+    out.append("types 0\n")
+
+    out.append(s"attrs ${spec.seq.size}\n")
+    spec.seq.foreach { attr =>
+      val (typ, endianOverride, sizeExpr, enumName, encoding, process, ifExpr, repeatKind, repeatExpr, switchOn, switchCases, userTypeArgs) = attrToIr(attr)
+      val endStr = endianOverride.map(e => endianToIr(Some(e))).getOrElse("none")
+      val sizeStr = sizeExpr.map(exprToIr).getOrElse("none")
+      val ifStr = ifExpr.map(exprToIr).getOrElse("none")
+      val repeatExprStr = repeatExpr.map(exprToIr).getOrElse("none")
+      val switchOnStr = switchOn.map(exprToIr).getOrElse("none")
+      val switchCasesStr = switchCases.map { case (onExpr, tpe) =>
+        s" ${quote(onExpr.map(exprToIr).getOrElse("else"))} ${renderTypeRef(tpe)}"
+      }.mkString("")
+      val userArgsStr = userTypeArgs.map(a => s" ${quote(exprToIr(a))}").mkString("")
+      out.append(s"attr ${quote(attr.id.humanReadable)} ${renderTypeRef(typ)} $endStr ${quote(sizeStr)} ${quote(enumName.getOrElse("none"))} ${quote(encoding.getOrElse("none"))} ${quote(process.getOrElse("none"))} ${quote(ifStr)} $repeatKind ${quote(repeatExprStr)} ${quote(switchOnStr)} ${switchCases.size}$switchCasesStr ${userTypeArgs.size}$userArgsStr\n")
+    }
+
+    val enums = collectEnums(spec)
+    out.append(s"enums ${enums.size}\n")
+    enums.foreach { enumRow =>
+      out.append(s"enum ${quote(enumRow.name)} ${enumRow.values.size}\n")
+      enumRow.values.foreach { value =>
+        out.append(s"enum_value ${value.value} ${quote(value.name)}\n")
+      }
+    }
+
+    val allInstances = spec.instances.values.toList
+    out.append(s"instances ${allInstances.size}\n")
+    allInstances.foreach {
+      case inst: ValueInstanceSpec =>
+        val instanceTypeSuffix = inst.dataTypeOpt
+          .flatMap(typeRefFromDataTypeOpt)
+          .map(t => s" ${renderTypeRef(t)}")
+          .getOrElse("")
+        out.append(s"instance ${quote(inst.id.humanReadable)} ${quote(exprToIr(inst.value))}$instanceTypeSuffix\n")
+      case inst: ParseInstanceSpec =>
+        val tpe = typeRefFromDataType(inst.dataType)
+        val endian = inst.dataType match {
+          case IntMultiType(_, _, e) => e
+          case FloatMultiType(_, e) => e
+          case _ => None
+        }
+        val sizeExpr = inst.dataType match {
+          case BytesLimitType(size, _, _, _, _) => Some(size)
+          case StrFromBytesType(BytesLimitType(size, _, _, _, _), _) => Some(size)
+          case StrFromBytesTypeUnknownEncoding(BytesLimitType(size, _, _, _, _)) => Some(size)
+          case StrzType(BytesLimitType(size, _, _, _, _), _) => Some(size)
+          case _ => None
+        }
+        val encoding = inst.dataType match {
+          case StrFromBytesType(_, enc) => Some(enc)
+          case StrzType(_, Some(enc)) => Some(enc)
+          case _ => None
+        }
+        val endianStr = endian.map(e => endianToIr(Some(e))).getOrElse("none")
+        val sizeStr = sizeExpr.map(exprToIr).getOrElse("none")
+        val posStr = inst.pos.map(exprToIr).getOrElse("none")
+        out.append(
+          s"instance_parse ${quote(inst.id.humanReadable)} ${renderTypeRef(tpe)} " +
+            s"$endianStr ${quote(sizeStr)} ${quote(encoding.getOrElse("none"))} ${quote(posStr)}\n"
+        )
+    }
+
+    val validations = collectValidations(spec)
+    out.append(s"validations ${validations.size}\n")
+    validations.foreach { v =>
+      out.append(s"validation ${quote(v.target)} ${quote(exprToIr(v.conditionExpr))} ${quote(v.message)}\n")
+    }
+
+    out.append("end\n")
+    out.toString
   }
 
   private def typeRefFromDataTypeOpt(t: DataType): Option[TypeRef] = t match {

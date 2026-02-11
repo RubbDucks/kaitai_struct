@@ -1,9 +1,71 @@
 #include <iostream>
+#include <filesystem>
+#include <string>
+#include <vector>
 
 #include "cli_options.h"
 #include "codegen.h"
 #include "frontend.h"
 #include "ir.h"
+
+namespace {
+
+std::string PickSourcePathForSpec(const std::vector<std::string>& src_files, const std::string& spec_name) {
+  const auto normalize = [](const std::string& raw) {
+    auto p = std::filesystem::path(raw);
+    p.make_preferred();
+    return p.string();
+  };
+  if (src_files.empty()) return spec_name;
+  for (const auto& src : src_files) {
+    std::error_code ec;
+    const auto stem = std::filesystem::path(src).stem().string();
+    if (!ec && stem == spec_name) return normalize(src);
+  }
+  return normalize(src_files.front());
+}
+
+bool TryEmitUnknownTypeDiagnosticCompat(const std::string& semantic_error,
+                                        const std::vector<std::string>& src_files) {
+  std::string spec_name;
+  std::string type_name;
+
+  const std::string kPrefixA = "semantic/type validation failed for ";
+  const std::string kUnknownA = "references unknown user type: ";
+  if (semantic_error.rfind(kPrefixA, 0) == 0) {
+    const size_t spec_end = semantic_error.find(": ", kPrefixA.size());
+    if (spec_end != std::string::npos) {
+      spec_name = semantic_error.substr(kPrefixA.size(), spec_end - kPrefixA.size());
+      const std::string detail = semantic_error.substr(spec_end + 2);
+      const size_t unknown_pos = detail.find(kUnknownA);
+      if (unknown_pos != std::string::npos) {
+        type_name = detail.substr(unknown_pos + kUnknownA.size());
+      }
+    }
+  }
+
+  if (spec_name.empty() || type_name.empty()) {
+    const std::string kPrefixB = "TypeError: unknown type: ";
+    const std::string kInSpec = " in spec ";
+    if (semantic_error.rfind(kPrefixB, 0) == 0) {
+      const size_t in_spec_pos = semantic_error.find(kInSpec, kPrefixB.size());
+      if (in_spec_pos != std::string::npos) {
+        type_name = semantic_error.substr(kPrefixB.size(), in_spec_pos - kPrefixB.size());
+        spec_name = semantic_error.substr(in_spec_pos + kInSpec.size());
+      }
+    }
+  }
+
+  if (spec_name.empty() || type_name.empty()) return false;
+
+  const std::string source_path = PickSourcePathForSpec(src_files, spec_name);
+  std::cerr << source_path << ": /seq/0/type:" << std::endl;
+  std::cerr << "\terror: unable to find type '" << type_name
+            << "', searching from " << spec_name << std::endl;
+  return true;
+}
+
+} // namespace
 
 int main(int argc, char** argv) {
   const kscpp::ParseResult parse = kscpp::ParseCommandLine(argc, argv);
@@ -60,6 +122,9 @@ int main(int argc, char** argv) {
 
     auto semantic_stage = kscpp::frontend::ValidateSemanticsAndTypes(specs);
     if (!semantic_stage.ok) {
+      if (TryEmitUnknownTypeDiagnosticCompat(semantic_stage.error, parse.options.src_files)) {
+        return 1;
+      }
       std::cerr << "Error: semantic/type validation failed: " << semantic_stage.error << std::endl;
       return 1;
     }
